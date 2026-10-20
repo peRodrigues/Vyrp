@@ -1,0 +1,11 @@
+{
+  "projeto": "Vyrp",
+  "dados": ".evidencias/dados",
+  "porta": 8791,
+  "captura": {
+    "tipo": "janela",
+    "processo": "^vyrp$",
+    "titulo": "^Vyrp$"
+  },
+  "abrir": "npm run tauri dev"
+}

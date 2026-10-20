@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Permissões das janelas do Vyrp (hub e overlay)",
+  "windows": ["hub", "overlay"],
+  "permissions": ["core:default"]
+}

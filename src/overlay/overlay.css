@@ -1,0 +1,42 @@
+html,
+body.overlay {
+  margin: 0;
+  background: transparent;
+  overflow: hidden;
+  font-family: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  user-select: none;
+}
+
+#root {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  border-radius: 999px;
+  background: rgba(22, 24, 29, 0.88);
+  color: #eceef2;
+  font-size: 13px;
+}
+
+.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #8b8bff;
+  transition: transform 60ms linear;
+}
+
+.pill--listening .dot {
+  background: #ff5d5d;
+}
+
+.pill--error .dot {
+  background: #ffb020;
+}

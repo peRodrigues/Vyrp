@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Lint (front)
+        run: npm run lint
+
+      - name: Lint (Rust)
+        run: npm run lint:rust
+
+      - name: Testes (front)
+        run: npm test
+
+      - name: Testes (Rust)
+        run: npm run test:rust
+
+      - name: Build (release, sem instalador)
+        run: npm run tauri build -- --no-bundle
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vyrp-windows
+          path: src-tauri/target/release/vyrp.exe
