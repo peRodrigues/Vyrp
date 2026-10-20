@@ -1,17 +1,25 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import Advanced from "./Advanced";
 import Dictionary from "./Dictionary";
+import General from "./General";
+import History from "./History";
+import { t } from "./i18n";
+import { useSettings } from "./useSettings";
 
 interface AppInfo {
   version: string;
   log_dir: string;
 }
 
-type Tab = "home" | "dictionary";
+type Tab = "home" | "general" | "history" | "dictionary" | "advanced";
 
-const TABS: { id: Tab; label: string }[] = [
-  { id: "home", label: "Início" },
-  { id: "dictionary", label: "Dicionário" },
+const TABS: { id: Tab; label: () => string }[] = [
+  { id: "home", label: () => t("tab.home") },
+  { id: "general", label: () => t("tab.general") },
+  { id: "history", label: () => t("tab.history") },
+  { id: "dictionary", label: () => t("tab.dictionary") },
+  { id: "advanced", label: () => t("tab.advanced") },
 ];
 
 function Home() {
@@ -42,6 +50,7 @@ function Home() {
 
 export default function Hub() {
   const [tab, setTab] = useState<Tab>("home");
+  const settingsState = useSettings();
 
   return (
     <main className="hub">
@@ -59,11 +68,15 @@ export default function Hub() {
             className={tab === id ? "tab on" : "tab"}
             onClick={() => setTab(id)}
           >
-            {label}
+            {label()}
           </button>
         ))}
       </nav>
-      {tab === "home" ? <Home /> : <Dictionary />}
+      {tab === "home" && <Home />}
+      {tab === "general" && <General {...settingsState} />}
+      {tab === "history" && <History retention={settingsState.settings?.history_retention ?? null} />}
+      {tab === "dictionary" && <Dictionary />}
+      {tab === "advanced" && <Advanced {...settingsState} />}
     </main>
   );
 }

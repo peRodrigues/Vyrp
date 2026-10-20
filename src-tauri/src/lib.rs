@@ -4,6 +4,7 @@ pub mod audio;
 pub mod context;
 pub mod core;
 pub mod hotkey;
+pub mod hub;
 pub mod insert;
 pub mod llm;
 pub mod metrics;
@@ -248,6 +249,12 @@ pub fn run() {
             storage::dictionary_commands::dictionary_set_favorite,
             storage::dictionary_commands::dictionary_export_csv,
             storage::dictionary_commands::dictionary_import_csv,
+            hub::history_list,
+            hub::history_delete,
+            hub::history_clear,
+            hub::list_microphones,
+            hub::settings_defaults,
+            hub::stt_models,
         ])
         .setup(|app| {
             let handle = app.handle();
