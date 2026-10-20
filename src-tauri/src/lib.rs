@@ -15,7 +15,7 @@ pub mod vad;
 
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Manager, PhysicalPosition, WindowEvent};
+use tauri::{AppHandle, Emitter, Listener, Manager, PhysicalPosition, WindowEvent};
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::EnvFilter;
 
@@ -123,6 +123,111 @@ fn place_overlay(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
+/// Liga atalhos globais (hook + gestos) com os atalhos do Settings. Por ora os gestos
+/// só vão para o log e para o evento de diagnóstico; o orquestrador (V11) passa a
+/// consumi-los.
+fn start_hotkeys(app: &AppHandle) {
+    #[cfg(windows)]
+    {
+        let gestures = app.state::<settings::SettingsStore>().get().gestures;
+        let emitter = app.clone();
+        match hotkey::start(gestures, move |gesture| {
+            let _ = emitter.emit(hotkey::EVENT_GESTURE, gesture);
+        }) {
+            Ok(service) => {
+                app.manage(service);
+            }
+            Err(err) => tracing::error!(error = %err, "atalhos globais indisponíveis"),
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = app;
+}
+
+/// Liga a captura de áudio (V7): stream pré-aquecido no microfone do Settings; nível
+/// vai para o overlay, avisos para o log.
+fn start_audio(app: &AppHandle) {
+    let cfg = app.state::<settings::SettingsStore>().get().audio();
+    let emitter = app.clone();
+    let service = audio::AudioService::start(cfg, move |event| match event {
+        audio::AudioEvent::Level(rms) => {
+            let _ = emitter.emit(core::types::EVENT_LEVEL, core::types::AudioLevel { rms });
+        }
+        audio::AudioEvent::Warning(warning) => {
+            tracing::warn!(?warning, "aviso de áudio");
+        }
+        audio::AudioEvent::Ready { .. } => {}
+    });
+    app.manage(service);
+}
+
+/// Repassa mudanças do Settings (`set_settings`) para atalhos e captura, sem reiniciar.
+fn follow_settings(app: &AppHandle) {
+    let handle = app.clone();
+    app.listen(settings::EVENT_CHANGED, move |event| {
+        let Ok(next) = serde_json::from_str::<settings::Settings>(event.payload()) else {
+            return;
+        };
+        #[cfg(windows)]
+        if let Some(hotkeys) = handle.try_state::<hotkey::HotkeyService>() {
+            hotkeys.update(next.gestures.clone());
+        }
+        if let Some(audio) = handle.try_state::<audio::AudioService>() {
+            audio.configure(next.audio());
+        }
+    });
+}
+
+/// `--diag-record <segundos>`: grava do microfone e salva um WAV de diagnóstico na
+/// pasta de logs, com o resumo no log (teste da captura sem o orquestrador).
+fn diag_record(app: &AppHandle) {
+    let mut args = std::env::args().skip_while(|a| a != "--diag-record");
+    if args.next().is_none() {
+        return;
+    }
+    let secs: u64 = args
+        .next()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(5)
+        .clamp(1, 60);
+    let app = app.clone();
+    std::thread::spawn(move || {
+        use core::types::{DictationState, EVENT_STATE};
+        // Dá tempo do stream pré-aquecido abrir.
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        let audio = app.state::<audio::AudioService>();
+        tracing::info!(secs, devices = ?audio.devices(), "diag: gravando");
+        let _ = app.emit(EVENT_STATE, DictationState::Listening { locked: false });
+        audio.begin();
+        std::thread::sleep(std::time::Duration::from_secs(secs));
+        let result = audio.end();
+        let _ = app.emit(EVENT_STATE, DictationState::Idle);
+        match result {
+            Ok(clip) => {
+                let peak = clip.pcm.iter().map(|s| s.unsigned_abs()).max().unwrap_or(0);
+                let rms = audio::dsp::rms(&clip.pcm);
+                let path = app
+                    .path()
+                    .app_log_dir()
+                    .unwrap_or_default()
+                    .join(format!("diag-{}.wav", std::process::id()));
+                let saved = audio::wav::write(&path, &clip.pcm, clip.sample_rate);
+                tracing::info!(
+                    ms = clip.duration_ms(),
+                    samples = clip.pcm.len(),
+                    rate = clip.sample_rate,
+                    rms = format_args!("{rms:.4}"),
+                    peak,
+                    wav = %path.display(),
+                    saved = saved.is_ok(),
+                    "diag: gravação concluída"
+                );
+            }
+            Err(err) => tracing::error!(error = %err, "diag: gravação falhou"),
+        }
+    });
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -130,14 +235,36 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             show_hub(app)
         }))
-        .invoke_handler(tauri::generate_handler![app_info])
+        .invoke_handler(tauri::generate_handler![
+            app_info,
+            settings::get_settings,
+            settings::set_settings,
+            settings::secrets::set_api_key,
+            settings::secrets::clear_api_key,
+            settings::secrets::has_api_key,
+            storage::dictionary_commands::dictionary_list,
+            storage::dictionary_commands::dictionary_save,
+            storage::dictionary_commands::dictionary_delete,
+            storage::dictionary_commands::dictionary_set_favorite,
+            storage::dictionary_commands::dictionary_export_csv,
+            storage::dictionary_commands::dictionary_import_csv,
+        ])
         .setup(|app| {
             let handle = app.handle();
             if let Err(err) = init_logging(handle) {
                 eprintln!("log desativado: {err}");
             }
+            settings::init(handle)?;
+            if let Err(err) = storage::init(handle) {
+                tracing::error!(error = %err, "banco de dados indisponível");
+            }
+            post::init(handle);
             build_tray(handle)?;
             place_overlay(handle)?;
+            start_hotkeys(handle);
+            start_audio(handle);
+            follow_settings(handle);
+            diag_record(handle);
             Ok(())
         })
         .on_window_event(|window, event| {
