@@ -4,6 +4,7 @@ import { formatSize, mergeRanking, moveItem } from "./format";
 import { t } from "./i18n";
 import { chordLabel } from "./keys";
 import { settingsApi } from "./settingsApi";
+import { OVERLAY_PREF_KEY, hideForever, parsePref, readPref, writePref } from "../shared/overlayPrefs";
 import type { GestureConfig, SttModelInfo } from "./settingsApi";
 import type { SettingsState } from "./useSettings";
 
@@ -51,6 +52,36 @@ function NumberInput(props: NumberFieldProps) {
         }}
       />
     </label>
+  );
+}
+
+function OverlayToggle() {
+  const [pref, setPref] = useState(readPref);
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === OVERLAY_PREF_KEY || e.key === null) setPref(parsePref(e.newValue));
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
+  const visible = pref === null;
+  return (
+    <section className="card">
+      <h2>{t("general.overlay.title")}</h2>
+      <label className="check">
+        <input
+          type="checkbox"
+          checked={visible}
+          onChange={(e) => {
+            const next = e.target.checked ? null : hideForever();
+            writePref(next);
+            setPref(next);
+          }}
+        />
+        {t("general.overlay.show")}
+      </label>
+      <p className="hint small">{t("general.overlay.hint")}</p>
+    </section>
   );
 }
 
@@ -236,6 +267,8 @@ export default function General({ settings, error, update }: SettingsState) {
           {t("general.keys.restore")}
         </button>
       </section>
+
+      <OverlayToggle />
 
       <section className="card">
         <h2>{t("general.model.title")}</h2>

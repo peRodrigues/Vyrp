@@ -5,6 +5,7 @@ body.overlay {
   overflow: hidden;
   font-family: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
   user-select: none;
+  cursor: default;
 }
 
 #root {
@@ -15,28 +16,141 @@ body.overlay {
 }
 
 .pill {
+  --accent: #8b8bff;
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  padding: 8px 16px;
+  max-width: 100%;
+  box-sizing: border-box;
+  height: 40px;
+  padding: 0 16px;
   border-radius: 999px;
-  background: rgba(22, 24, 29, 0.88);
+  background: rgba(22, 24, 29, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   color: #eceef2;
   font-size: 13px;
+  white-space: nowrap;
+  transition: background 120ms ease, opacity 120ms ease;
+}
+
+/* Repouso: discreta até o mouse chegar perto. */
+.pill--idle {
+  opacity: 0.55;
+  gap: 8px;
+}
+
+.pill--idle:hover {
+  opacity: 1;
+}
+
+.pill--listening {
+  --accent: #ff5d5d;
+}
+
+.pill--listening.pill--locked {
+  --accent: #5ba8ff;
+}
+
+.pill--processing,
+.pill--inserting,
+.pill--arming {
+  --accent: #8b8bff;
+}
+
+.pill--done {
+  --accent: #4cc38a;
+}
+
+.pill--error {
+  --accent: #ffb020;
 }
 
 .dot {
   width: 10px;
   height: 10px;
+  flex: none;
   border-radius: 50%;
-  background: #8b8bff;
-  transition: transform 60ms linear;
+  background: var(--accent);
 }
 
 .pill--listening .dot {
-  background: #ff5d5d;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 25%, transparent);
 }
 
-.pill--error .dot {
-  background: #ffb020;
+.glyph {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #15171c;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.spinner {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  border-top-color: var(--accent);
+  animation: spin 800ms linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.wave {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 24px;
+}
+
+.bar {
+  width: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+  transition: height 70ms linear;
+}
+
+.label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hide-actions {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.hide-actions button {
+  font: inherit;
+  font-size: 12px;
+  color: #eceef2;
+  background: rgba(255, 255, 255, 0.1);
+  border: 0;
+  border-radius: 999px;
+  padding: 3px 10px;
+  cursor: pointer;
+}
+
+.hide-actions button:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation-duration: 2400ms;
+  }
+
+  .bar {
+    transition: none;
+  }
 }

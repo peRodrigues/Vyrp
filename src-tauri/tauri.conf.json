@@ -25,7 +25,7 @@
         "label": "overlay",
         "title": "Vyrp overlay",
         "url": "overlay.html",
-        "width": 240,
+        "width": 280,
         "height": 56,
         "visible": false,
         "transparent": true,

@@ -8,6 +8,7 @@ pub mod hub;
 pub mod insert;
 pub mod llm;
 pub mod metrics;
+pub mod overlay;
 pub mod post;
 pub mod settings;
 pub mod storage;
@@ -255,6 +256,7 @@ pub fn run() {
             hub::list_microphones,
             hub::settings_defaults,
             hub::stt_models,
+            overlay::overlay_demo,
         ])
         .setup(|app| {
             let handle = app.handle();
@@ -268,6 +270,7 @@ pub fn run() {
             post::init(handle);
             build_tray(handle)?;
             place_overlay(handle)?;
+            overlay::init(handle);
             start_hotkeys(handle);
             start_audio(handle);
             follow_settings(handle);

@@ -1,5 +1,7 @@
 // Espelho TS dos contratos de src-tauri/src/core/types.rs (eventos do ditado).
 
+import { t } from "../hub/i18n";
+
 export const EVENT_STATE = "dictation://state";
 export const EVENT_LEVEL = "dictation://level";
 
@@ -24,31 +26,22 @@ export interface AudioLevel {
   rms: number;
 }
 
-const ERROR_LABELS: Record<ErrorCode, string> = {
-  mic_unavailable: "Microfone indisponível",
-  no_audio: "Nenhum áudio captado",
-  stt_failed: "Falha na transcrição",
-  llm_failed: "Falha na limpeza",
-  insert_failed: "Não deu para colar",
-  timeout: "Demorou demais",
-};
-
 /** Texto curto do overlay para cada estado. */
 export function stateLabel(s: DictationState): string {
   switch (s.state) {
     case "idle":
-      return "Pronto";
+      return t("overlay.idle");
     case "arming":
-      return "Preparando…";
+      return t("overlay.arming");
     case "listening":
-      return s.locked ? "Ouvindo (mãos livres)" : "Ouvindo";
+      return s.locked ? t("overlay.listeningLocked") : t("overlay.listening");
     case "processing":
-      return "Processando…";
+      return t("overlay.processing");
     case "inserting":
-      return "Colando…";
+      return t("overlay.inserting");
     case "done":
-      return "Pronto";
+      return t("overlay.done");
     case "error":
-      return ERROR_LABELS[s.code];
+      return t(`overlay.error.${s.code}`);
   }
 }

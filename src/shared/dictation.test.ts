@@ -10,4 +10,14 @@ describe("stateLabel", () => {
   it("traduz códigos de erro", () => {
     expect(stateLabel({ state: "error", code: "no_audio" })).toBe("Nenhum áudio captado");
   });
+
+  it("falha ao colar avisa que o texto foi copiado", () => {
+    expect(stateLabel({ state: "error", code: "insert_failed" })).toBe("Copiado. Cole manualmente.");
+  });
+
+  it("tem texto para todos os estados", () => {
+    for (const s of ["idle", "arming", "processing", "inserting", "done"] as const) {
+      expect(stateLabel({ state: s }).length).toBeGreaterThan(0);
+    }
+  });
 });
