@@ -75,3 +75,176 @@ dd {
   font-size: 12px;
   word-break: break-all;
 }
+
+/* ---- abas ---- */
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin-top: 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.tab {
+  background: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  padding: 8px 14px;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.tab.on {
+  color: var(--fg);
+  border-bottom-color: var(--accent);
+}
+
+/* ---- dicionário ---- */
+button {
+  font: inherit;
+  color: var(--fg);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+button.danger {
+  color: #c0392b;
+  border-color: #c0392b;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 20px 0 12px;
+}
+
+.toolbar input[type="search"] {
+  flex: 1 1 220px;
+}
+
+input[type="search"],
+.entry-form input:not([type="checkbox"]),
+.entry-form textarea {
+  font: inherit;
+  color: var(--fg);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 10px;
+  box-sizing: border-box;
+}
+
+.entry-form {
+  display: grid;
+  gap: 12px;
+}
+
+.entry-form label {
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.entry-form label.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.entry-form .actions {
+  display: flex;
+  gap: 8px;
+}
+
+.error {
+  margin: 0;
+  color: #c0392b;
+}
+
+.notice {
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  cursor: pointer;
+}
+
+.empty {
+  color: var(--muted);
+  text-align: center;
+  padding: 32px 0;
+}
+
+.entries {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.entries li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 14px;
+}
+
+.entry-text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.arrow {
+  color: var(--muted);
+}
+
+.star {
+  border: 0;
+  background: none;
+  padding: 0 2px;
+  font-size: 18px;
+  color: var(--muted);
+}
+
+.star.on {
+  color: #e0a800;
+}
+
+.badge {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.badge.snippet {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.row-actions,
+.confirm {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
