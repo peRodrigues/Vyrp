@@ -273,6 +273,8 @@ export const en: Record<keyof typeof ptBR, string> = {
   "history.words": "{n} words",
   "history.words1": "1 word",
   "history.unknownApp": "unknown app",
+  "history.unverifiedHint": "Vyrp pasted into the right field, but the app did not let it confirm the text (common in Discord and other Electron apps).",
+  "status.inserted_unverified": "Pasted, not confirmed",
 
   "common.unknownError": "unknown error",
   "time.today": "today",

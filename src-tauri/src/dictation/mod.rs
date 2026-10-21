@@ -240,7 +240,10 @@ pub async fn run_pipeline(deps: &Deps<'_>, input: Input, emit: &dyn Fn(Dictation
         let copied = deps.inserter.copy_text(&request);
         tracing::info!(copied = copied.ok, reason = ?copied.reason, "ditado: texto copiado após falha ao colar");
     }
-    entry.status = if outcome.ok {
+    entry.status = if outcome.ok && outcome.verified == Some(false) {
+        // Colado no alvo conferido, mas o UIA (ex.: Electron) não mostrou o texto a tempo.
+        "inserted_unverified"
+    } else if outcome.ok {
         "inserted"
     } else if blocked {
         "blocked"
@@ -1119,6 +1122,48 @@ mod tests {
             }
         );
         assert_eq!(inserter.0.lock().unwrap().as_slice(), ["Olá mundo"]);
+    }
+
+    /// Cola no alvo conferido, mas o UIA não confirma (ex.: Discord/Electron).
+    #[derive(Default)]
+    struct UnconfirmedInserter(StdMutex<Vec<String>>);
+    impl Inserter for UnconfirmedInserter {
+        fn insert(&self, req: &InsertRequest) -> InsertOutcome {
+            InsertOutcome {
+                ok: true,
+                method: req.method,
+                verified: Some(false),
+                reason: Some(crate::insert::UNVERIFIED_REASON.into()),
+            }
+        }
+        fn undo_last(&self) -> InsertOutcome {
+            self.insert(&InsertRequest::default())
+        }
+        fn copy_text(&self, req: &InsertRequest) -> InsertOutcome {
+            self.0.lock().unwrap().push(req.text.clone());
+            self.insert(req)
+        }
+    }
+
+    #[test]
+    fn unconfirmed_paste_is_success_without_touching_the_clipboard() {
+        let stt = FakeStt("olá mundo");
+        let post = PostProcessor::new();
+        let inserter = UnconfirmedInserter::default();
+        let deps = Deps {
+            stt: &stt,
+            post: &post,
+            llm: None,
+            inserter: &inserter,
+            stt_name: "falso",
+            llm_name: None,
+        };
+        let report = tauri::async_runtime::block_on(run_pipeline(&deps, input(), &|_| {}));
+        assert_eq!(report.state, DictationState::Done, "sem erro na barra");
+        let entry = report.entry.unwrap();
+        assert_eq!(entry.status, "inserted_unverified");
+        assert_eq!(entry.inserted_text.as_deref(), Some("Olá mundo"));
+        assert!(inserter.0.lock().unwrap().is_empty(), "clipboard intocado");
     }
 
     #[test]

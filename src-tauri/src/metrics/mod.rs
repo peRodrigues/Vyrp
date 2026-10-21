@@ -13,7 +13,8 @@ use serde::{Deserialize, Serialize};
 /// Status que contam como ditado bem-sucedido (o resto é erro, contado pelo código).
 /// `no_speech` (transcrição vazia/VAD) é "ok sem texto": hoje o orquestrador nem grava essa
 /// linha, mas, se gravar, não conta como erro.
-pub const OK_STATUSES: [&str; 3] = ["inserted", "undo", "no_speech"];
+/// `inserted_unverified`: colado no alvo conferido, só o UIA não confirmou (BUGS-USO-4).
+pub const OK_STATUSES: [&str; 4] = ["inserted", "inserted_unverified", "undo", "no_speech"];
 
 /// Uma linha do histórico reduzida ao que importa para métricas (sem texto, app ou URL).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -370,6 +371,7 @@ mod tests {
         b.created_at = 30;
         let mut ok = row("inserted", None, None, None);
         ok.created_at = 99;
+        assert!(row("inserted_unverified", None, None, None).is_ok());
         let mut c = row("stt_failed", None, None, None);
         c.created_at = 20;
         assert_eq!(

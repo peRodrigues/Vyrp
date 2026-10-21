@@ -271,6 +271,8 @@ export const ptBR = {
   "history.words": "{n} palavras",
   "history.words1": "1 palavra",
   "history.unknownApp": "app desconhecido",
+  "history.unverifiedHint": "O Vyrp colou no campo certo, mas o app não deixou confirmar o texto (comum no Discord e em outros apps Electron).",
+  "status.inserted_unverified": "Colado, não confirmado",
 
   "common.unknownError": "erro desconhecido",
   "time.today": "hoje",

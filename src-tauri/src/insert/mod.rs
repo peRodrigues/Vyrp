@@ -151,6 +151,21 @@ fn is_terminal(class: &str, exe: &str) -> bool {
         || EXES.iter().any(|e| exe.eq_ignore_ascii_case(e))
 }
 
+/// Quanto esperar o UIA mostrar o texto colado. Chromium/Electron (Edge, Chrome, Discord,
+/// Slack, VS Code: classe `Chrome_WidgetWin_*`) atualizam a árvore de acessibilidade com
+/// atraso; os outros respondem logo.
+fn verify_window(class: &str) -> std::time::Duration {
+    let ms = if class.starts_with("Chrome_WidgetWin") {
+        500
+    } else {
+        200
+    };
+    std::time::Duration::from_millis(ms)
+}
+
+/// Motivo do resultado "colado, não confirmado" (`ok` com `verified == Some(false)`).
+pub const UNVERIFIED_REASON: &str = "teclas enviadas ao alvo conferido; UIA não confirmou o texto";
+
 fn verified(
     before: &crate::context::FocusSnapshot,
     after: &crate::context::FocusSnapshot,
@@ -222,6 +237,16 @@ mod tests {
         after.focus_id = vec![2];
         assert_eq!(verified(&before, &after, "new 🦀"), None);
     }
+    #[test]
+    fn chromium_and_electron_get_a_longer_verification_window() {
+        assert_eq!(verify_window("Chrome_WidgetWin_1").as_millis(), 500);
+        assert_eq!(verify_window("Chrome_WidgetWin_0").as_millis(), 500);
+        assert_eq!(
+            verify_window("WindowsForms10.EDIT.app.0.1").as_millis(),
+            200
+        );
+    }
+
     #[test]
     fn terminal_is_detected_by_window_class() {
         assert!(is_terminal(

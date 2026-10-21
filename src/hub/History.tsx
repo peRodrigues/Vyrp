@@ -32,6 +32,11 @@ function Row({ item, onDelete }: { item: HistoryItem; onDelete: (id: string) => 
         <span>{formatDuration(item.duration_ms)}</span>
         <span>{wordsLabel(item.word_count)}</span>
         {differs && <span className="badge">{raw ? t("history.raw") : t("history.final")}</span>}
+        {item.status === "inserted_unverified" && (
+          <span className="badge" title={t("history.unverifiedHint")}>
+            {t("status.inserted_unverified")}
+          </span>
+        )}
       </div>
       <p className="history-text">{shown}</p>
       <div className="row-actions">

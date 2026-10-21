@@ -514,18 +514,22 @@ fn insert(owner: HWND, state: &mut State, req: &InsertRequest, job: &Job) -> Ins
     }
     let mut after = target.snapshot();
     let mut verified = super::verified(&before, &after, &req.text);
-    if verified == Some(false) && Instant::now() + Duration::from_millis(200) < job.deadline {
+    // Chromium/Electron demoram a refletir a colagem no UIA: reconfere por mais tempo.
+    let until = (Instant::now() + super::verify_window(&class)).min(
+        job.deadline
+            .checked_sub(Duration::from_millis(100))
+            .unwrap_or(job.deadline),
+    );
+    while verified == Some(false) && Instant::now() + Duration::from_millis(50) < until {
         std::thread::sleep(Duration::from_millis(50));
         after = target.snapshot();
         verified = super::verified(&before, &after, &req.text);
     }
-    if verified == Some(false) {
-        return InsertOutcome {
-            ok: false,
-            method,
-            verified,
-            reason: Some("UIA não confirmou o texto; confira o alvo antes de repetir".into()),
-        };
+    // As teclas foram para o alvo conferido; o UIA só não confirmou. Não é erro: o texto
+    // fica no histórico e no "colar último", sem mexer no clipboard (BUGS-USO-4).
+    let unconfirmed = verified == Some(false);
+    if unconfirmed {
+        tracing::info!(class = %class, "colagem enviada; UIA não confirmou o texto");
     }
     if req.press_enter {
         if let Err(e) = target.keys(&[(0x0d, false), (0x0d, true)], job.deadline) {
@@ -549,10 +553,10 @@ fn insert(owner: HWND, state: &mut State, req: &InsertRequest, job: &Job) -> Ins
         ok: true,
         method,
         verified,
-        reason: note.or_else(|| {
-            verified
-                .is_none()
-                .then(|| "teclas enviadas; alvo não permite verificação UIA".into())
+        reason: note.or_else(|| match verified {
+            None => Some("teclas enviadas; alvo não permite verificação UIA".into()),
+            Some(false) => Some(super::UNVERIFIED_REASON.into()),
+            Some(true) => None,
         }),
     }
 }
