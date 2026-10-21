@@ -82,6 +82,8 @@ pub struct Settings {
     pub media_duck_factor: f32,
     /// Abrir o Vyrp ao entrar no Windows (sobe só no tray, sem abrir o hub). V23.
     pub autostart: bool,
+    /// Auto-aprendizado do dicionário (V24): desligado, sugerir no hub ou automático.
+    pub dictionary_learning: crate::learn::LearnMode,
     /// Lista de privacidade (apps/sites bloqueados) e áudio no histórico. Campo aditivo:
     /// arquivos antigos caem nos padrões, sem migração.
     pub privacy: Privacy,
@@ -118,6 +120,7 @@ impl Default for Settings {
             media_mode: MediaMode::Off,
             media_duck_factor: 0.2,
             autostart: false,
+            dictionary_learning: crate::learn::LearnMode::default(),
             privacy: Privacy::default(),
             cleanup: CleanupLevel::default(),
             style: WritingStyle::default(),
@@ -265,6 +268,11 @@ impl Settings {
     }
 }
 
+/// Tira o BOM UTF-8 do começo: alguns editores do Windows o gravam, e o serde o recusa.
+pub fn strip_bom(text: &str) -> &str {
+    text.strip_prefix('\u{feff}').unwrap_or(text)
+}
+
 /// Settings em memória + persistência atômica em disco.
 pub struct SettingsStore {
     path: PathBuf,
@@ -276,7 +284,7 @@ impl SettingsStore {
     /// futura é guardado como `.bak` (nada é perdido) e os defaults entram.
     pub fn load(path: PathBuf) -> Self {
         let settings = match std::fs::read_to_string(&path) {
-            Ok(text) => serde_json::from_str::<Value>(&text)
+            Ok(text) => serde_json::from_str::<Value>(strip_bom(&text))
                 .map_err(|e| e.to_string())
                 .and_then(migrate)
                 .unwrap_or_else(|err| {
@@ -410,6 +418,27 @@ mod tests {
         assert_eq!(full.stt_policy, SttPolicy::CloudWithFallback);
         assert_eq!(full.stt_cloud, CloudProvider::OpenAi);
         assert_eq!(full.llm_provider, Some(LlmKind::Anthropic));
+    }
+
+    #[test]
+    fn a_utf8_bom_at_the_start_of_the_file_is_ignored() {
+        let path = temp_path();
+        let body = serde_json::to_string_pretty(&json!({
+            "version": CURRENT_VERSION,
+            "ui_language": "en",
+        }))
+        .unwrap();
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, format!("\u{feff}{body}")).unwrap();
+        let store = SettingsStore::load(path.clone());
+        assert_eq!(store.get().ui_language, "en");
+        assert!(!path.with_extension("json.bak").exists());
+        // Ao gravar, o arquivo sai sem BOM.
+        store.set(store.get()).unwrap();
+        let written = std::fs::read(&path).unwrap();
+        assert!(!written.starts_with(&[0xEF, 0xBB, 0xBF]));
+        assert_eq!(strip_bom("\u{feff}{}"), "{}");
+        assert_eq!(strip_bom("{}"), "{}");
     }
 
     #[test]
