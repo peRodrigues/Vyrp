@@ -20,6 +20,7 @@ use serde::{Deserialize, Serialize};
 
 use super::keys::{self, VK_ESCAPE};
 use crate::core::types::{ActionId, GestureEvent, KeyEvent};
+use crate::core::ui_error::UiError;
 
 /// Atalho: 1 a 3 teclas (VKs; modificador genérico casa com os dois lados).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -135,40 +136,68 @@ impl GestureConfig {
 
     /// Valida os atalhos; devolve a lista de problemas (vazia = ok).
     pub fn validate(&self) -> Vec<String> {
+        self.validate_ui().iter().map(ToString::to_string).collect()
+    }
+
+    /// Como [`validate`](Self::validate), com código estável para a tela (`uierr.shortcut.*`).
+    pub fn validate_ui(&self) -> Vec<UiError> {
         let mut problems = Vec::new();
         let chords: Vec<&Chord> = self.chords().collect();
         for chord in &chords {
             let n = chord.0.len();
+            let label = chord.label();
             if !(1..=3).contains(&n) {
-                problems.push(format!("{}: atalho precisa de 1 a 3 teclas", chord.label()));
+                problems.push(
+                    UiError::new(
+                        "shortcut.length",
+                        format!("{label}: atalho precisa de 1 a 3 teclas"),
+                    )
+                    .with("chord", &label),
+                );
             }
             let mut sorted = chord.0.clone();
             sorted.sort_unstable();
             sorted.dedup();
             if sorted.len() != n {
-                problems.push(format!("{}: tecla repetida", chord.label()));
+                problems.push(
+                    UiError::new("shortcut.repeated", format!("{label}: tecla repetida"))
+                        .with("chord", &label),
+                );
             }
             if !chord
                 .0
                 .iter()
                 .any(|&vk| keys::is_modifier(vk) || keys::is_mouse_button(vk))
             {
-                problems.push(format!(
-                    "{}: precisa de um modificador ou botão extra do mouse",
-                    chord.label()
-                ));
+                problems.push(
+                    UiError::new(
+                        "shortcut.needs_modifier",
+                        format!("{label}: precisa de um modificador ou botão extra do mouse"),
+                    )
+                    .with("chord", &label),
+                );
             }
             if chord.contains(self.cancel) {
-                problems.push(format!(
-                    "{}: não pode usar a tecla de cancelar",
-                    chord.label()
-                ));
+                problems.push(
+                    UiError::new(
+                        "shortcut.uses_cancel",
+                        format!("{label}: não pode usar a tecla de cancelar"),
+                    )
+                    .with("chord", &label),
+                );
             }
         }
         for (i, a) in chords.iter().enumerate() {
             for b in &chords[i + 1..] {
                 if a.0.len() == b.0.len() && a.satisfied_by(&b.0) {
-                    problems.push(format!("{} e {}: atalhos iguais", a.label(), b.label()));
+                    problems.push(
+                        UiError::new(
+                            "shortcut.duplicate",
+                            format!("{} e {}: atalhos iguais", a.label(), b.label()),
+                        )
+                        .with("a", a.label())
+                        .with("b", b.label()),
+                    );
                 }
             }
         }
@@ -644,6 +673,31 @@ mod tests {
             "{problems:?}"
         );
         assert!(problems.iter().any(|p| p.contains("1 a 3")), "{problems:?}");
+    }
+
+    #[test]
+    fn validation_problems_have_stable_codes_and_the_same_text() {
+        let cfg = GestureConfig {
+            lock: Some(Chord(vec![VK_WIN_ANY, VK_CONTROL])), // igual ao PTT
+            actions: vec![
+                (Chord(vec![0x41]), ActionId::CopyLast),
+                (Chord(vec![VK_CONTROL, VK_ESCAPE]), ActionId::OpenHub),
+            ],
+            ..GestureConfig::default()
+        };
+        let ui = cfg.validate_ui();
+        let codes: Vec<&str> = ui.iter().map(|e| e.code.as_str()).collect();
+        for code in [
+            "shortcut.duplicate",
+            "shortcut.needs_modifier",
+            "shortcut.uses_cancel",
+        ] {
+            assert!(codes.contains(&code), "{code} em {codes:?}");
+        }
+        let dup = ui.iter().find(|e| e.code == "shortcut.duplicate").unwrap();
+        assert!(dup.params.contains_key("a") && dup.params.contains_key("b"));
+        let texts: Vec<String> = ui.iter().map(ToString::to_string).collect();
+        assert_eq!(texts, cfg.validate());
     }
 
     #[test]

@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "lint": "eslint . && tsc -b",
-    "lint:rust": "cd src-tauri && cargo fmt --check && cargo clippy --all-targets -- -D warnings",
+    "lint:rust": "cd src-tauri && cargo fmt --check && cargo clippy --all-targets --features dev-tools -- -D warnings",
     "test": "vitest run",
     "test:rust": "cd src-tauri && cargo test",
     "check": "npm run lint && npm test && npm run lint:rust && npm run test:rust"

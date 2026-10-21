@@ -15,12 +15,17 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::audio::AudioConfig;
 use crate::core::types::{CleanupLevel, InsertMethod, WritingStyle};
+use crate::core::ui_error::UiError;
 use crate::hotkey::GestureConfig;
+use crate::llm::LlmKind;
 use crate::post::{VoiceCommand, default_voice_commands};
+use crate::privacy::Privacy;
+use crate::sound::{FxParams, MediaMode, MediaOptions, SoundParams};
+use crate::stt::cloud::{CloudProvider, SttPolicy};
 
 /// Versão atual do formato em disco. Some 1 a cada mudança incompatível e
 /// acrescente o passo em [`migrate`].
-pub const CURRENT_VERSION: u32 = 2;
+pub const CURRENT_VERSION: u32 = 5;
 /// Evento Tauri emitido após cada `set_settings` (payload: [`Settings`]).
 pub const EVENT_CHANGED: &str = "settings://changed";
 const FILE_NAME: &str = "settings.json";
@@ -56,6 +61,30 @@ pub struct Settings {
     pub gestures: GestureConfig,
     /// Modelo whisper local ativo (id do catálogo em `stt::catalog`).
     pub stt_model: String,
+    /// Onde transcrever: só local (padrão), só nuvem, ou nuvem com reserva local.
+    pub stt_policy: SttPolicy,
+    /// Provedor de STT na nuvem (a chave fica no Credential Manager).
+    pub stt_cloud: CloudProvider,
+    /// Limpeza por LLM: `None` = desligada (padrão; só o pós-processo local).
+    pub llm_provider: Option<LlmKind>,
+    /// Modelo do provedor de LLM; `None` = o padrão dele.
+    pub llm_model: Option<String>,
+    /// Endereço da API do LLM; `None` = o padrão do provedor. Vale para o Ollama
+    /// (outra porta/máquina) e para endpoints compatíveis com a API da OpenAI.
+    pub llm_url: Option<String>,
+    /// O onboarding de primeira execução já foi concluído (ou pulado).
+    pub onboarding_done: bool,
+    /// Volume dos sons de início/fim/erro/cancelar (0..1).
+    pub sound_volume: f32,
+    /// O que fazer com a mídia do sistema enquanto ouve: off, pause, mute ou duck.
+    pub media_mode: MediaMode,
+    /// No modo duck, quanto do volume atual fica (0..1).
+    pub media_duck_factor: f32,
+    /// Abrir o Vyrp ao entrar no Windows (sobe só no tray, sem abrir o hub). V23.
+    pub autostart: bool,
+    /// Lista de privacidade (apps/sites bloqueados) e áudio no histórico. Campo aditivo:
+    /// arquivos antigos caem nos padrões, sem migração.
+    pub privacy: Privacy,
     pub cleanup: CleanupLevel,
     pub style: WritingStyle,
     pub insert_method: InsertMethod,
@@ -71,7 +100,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             version: CURRENT_VERSION,
-            ui_language: "pt-BR".into(),
+            ui_language: "auto".into(),
             dictation_languages: vec!["pt".into()],
             microphone: None,
             mic_ranking: Vec::new(),
@@ -79,6 +108,17 @@ impl Default for Settings {
             preroll_ms: 300,
             gestures: GestureConfig::default(),
             stt_model: "small-q5_1".into(),
+            stt_policy: SttPolicy::default(),
+            stt_cloud: CloudProvider::Groq,
+            llm_provider: None,
+            llm_model: None,
+            llm_url: None,
+            onboarding_done: false,
+            sound_volume: 0.6,
+            media_mode: MediaMode::Off,
+            media_duck_factor: 0.2,
+            autostart: false,
+            privacy: Privacy::default(),
             cleanup: CleanupLevel::default(),
             style: WritingStyle::default(),
             insert_method: InsertMethod::default(),
@@ -89,19 +129,51 @@ impl Default for Settings {
     }
 }
 
+/// Endereço do LLM vindo da UI: em branco = padrão (`None`); senão precisa ser http(s) e
+/// sem espaços. Barras finais saem.
+fn normalize_llm_url(url: Option<String>) -> Result<Option<String>, UiError> {
+    let Some(raw) = url else {
+        return Ok(None);
+    };
+    let trimmed = raw.trim().trim_end_matches('/');
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    let valid = (trimmed.starts_with("http://") || trimmed.starts_with("https://"))
+        && trimmed.len() > "https://".len()
+        && !trimmed.contains(char::is_whitespace);
+    if valid {
+        Ok(Some(trimmed.to_string()))
+    } else {
+        Err(UiError::new(
+            "settings.llm_url_invalid",
+            format!("endereço do LLM inválido: {raw} (use http:// ou https://, sem espaços)"),
+        )
+        .with("url", raw))
+    }
+}
+
 impl Settings {
     /// Valida e normaliza um valor vindo da UI. Erro = recusar a gravação.
-    pub fn sanitized(mut self) -> Result<Self, String> {
-        let problems = self.gestures.validate();
-        if !problems.is_empty() {
-            return Err(problems.join("; "));
+    pub fn sanitized(mut self) -> Result<Self, UiError> {
+        // Um problema por vez: a tela mostra o primeiro; corrigido, aparece o próximo.
+        if let Some(first) = self.gestures.validate_ui().into_iter().next() {
+            return Err(first);
         }
         self.gestures.clamp_timings();
+        self.sound_volume = self.sound_volume.clamp(0.0, 1.0);
+        self.media_duck_factor = self.media_duck_factor.clamp(0.0, 1.0);
         if crate::stt::catalog::find(&self.stt_model).is_none() {
-            return Err(format!(
-                "modelo de transcrição desconhecido: {}",
-                self.stt_model
-            ));
+            return Err(UiError::new(
+                "settings.unknown_model",
+                format!("modelo de transcrição desconhecido: {}", self.stt_model),
+            )
+            .with("id", &self.stt_model));
+        }
+        self.llm_url = normalize_llm_url(self.llm_url.take())?;
+        self.privacy = self.privacy.clone().normalized();
+        if !matches!(self.ui_language.as_str(), "auto" | "pt-BR" | "en") {
+            self.ui_language = "auto".into();
         }
         self.version = CURRENT_VERSION;
         self.preroll_ms = self.preroll_ms.clamp(0, 2_000);
@@ -149,11 +221,39 @@ pub fn migrate(mut value: Value) -> Result<Settings, String> {
         obj.entry("gestures").or_insert(gestures);
         version = 2;
     }
+    if version == 2 {
+        // v3: provedores (stt_policy, stt_cloud, llm_provider, llm_model). Campos novos
+        // entram com os padrões: tudo local, LLM desligado.
+        version = 3;
+    }
+    if version == 3 {
+        // v4: som e mídia (sound_volume, media_mode, media_duck_factor), com os padrões.
+        version = 4;
+    }
+    if version == 4 {
+        // v5: llm_url (None = padrão do provedor) e onboarding_done (false). O hub migra
+        // sozinho o "onboarding concluído" que antes vivia no localStorage.
+        version = 5;
+    }
     obj.insert("version".into(), version.into());
     serde_json::from_value(value).map_err(|e| e.to_string())
 }
 
 impl Settings {
+    /// Sons e mídia do ditado (V19).
+    pub fn fx(&self) -> FxParams {
+        FxParams {
+            sound: SoundParams {
+                enabled: self.sounds,
+                volume: self.sound_volume,
+            },
+            media: MediaOptions {
+                mode: self.media_mode,
+                duck_factor: self.media_duck_factor,
+            },
+        }
+    }
+
     /// Parte do Settings que a captura de áudio usa.
     pub fn audio(&self) -> AudioConfig {
         AudioConfig {
@@ -197,9 +297,9 @@ impl SettingsStore {
     }
 
     /// Valida, grava em disco (tmp + rename) e só então troca o valor em memória.
-    pub fn set(&self, next: Settings) -> Result<Settings, String> {
+    pub fn set(&self, next: Settings) -> Result<Settings, UiError> {
         let next = next.sanitized()?;
-        write_atomic(&self.path, &next).map_err(|e| e.to_string())?;
+        write_atomic(&self.path, &next).map_err(|e| UiError::raw(e.to_string()))?;
         *self.current.lock().unwrap() = next.clone();
         Ok(next)
     }
@@ -232,7 +332,7 @@ pub fn set_settings(
     app: AppHandle,
     store: State<'_, SettingsStore>,
     settings: Settings,
-) -> Result<Settings, String> {
+) -> Result<Settings, UiError> {
     let saved = store.set(settings)?;
     let _ = app.emit(EVENT_CHANGED, &saved);
     Ok(saved)
@@ -289,6 +389,186 @@ mod tests {
         );
         let s = migrate(json!({"version": 2, "history_retention": "day"})).unwrap();
         assert_eq!(s.history_retention, HistoryRetention::Day);
+    }
+
+    #[test]
+    fn v2_file_gets_local_only_providers() {
+        let s = migrate(json!({"version": 2, "sounds": false, "stt_model": "base"})).unwrap();
+        assert_eq!(s.version, CURRENT_VERSION);
+        assert_eq!(s.stt_policy, SttPolicy::LocalOnly);
+        assert_eq!(s.stt_cloud, CloudProvider::Groq);
+        assert_eq!(s.llm_provider, None);
+        assert_eq!(s.stt_model, "base");
+        let full = migrate(json!({
+            "version": 3,
+            "stt_policy": "cloud_with_fallback",
+            "stt_cloud": "open_ai",
+            "llm_provider": "anthropic",
+            "llm_model": "claude-haiku-5-5"
+        }))
+        .unwrap();
+        assert_eq!(full.stt_policy, SttPolicy::CloudWithFallback);
+        assert_eq!(full.stt_cloud, CloudProvider::OpenAi);
+        assert_eq!(full.llm_provider, Some(LlmKind::Anthropic));
+    }
+
+    #[test]
+    fn validation_errors_reach_the_ui_as_codes() {
+        let bad_url = Settings {
+            llm_url: Some("ftp://x".into()),
+            ..Settings::default()
+        }
+        .sanitized()
+        .unwrap_err();
+        assert_eq!(bad_url.code, "settings.llm_url_invalid");
+        assert_eq!(bad_url.params["url"], "ftp://x");
+        let model = Settings {
+            stt_model: "nao-existe".into(),
+            ..Settings::default()
+        }
+        .sanitized()
+        .unwrap_err();
+        assert_eq!(model.code, "settings.unknown_model");
+        assert_eq!(model.params["id"], "nao-existe");
+        let mut shortcuts = Settings::default();
+        shortcuts.gestures.ptt = crate::hotkey::gesture::Chord(vec![0x41]);
+        let err = shortcuts.sanitized().unwrap_err();
+        assert!(err.code.starts_with("shortcut."), "{}", err.code);
+    }
+
+    #[test]
+    fn ui_language_defaults_to_auto_and_unknown_values_fall_back() {
+        assert_eq!(Settings::default().ui_language, "auto");
+        let with = |lang: &str| {
+            Settings {
+                ui_language: lang.into(),
+                ..Settings::default()
+            }
+            .sanitized()
+            .unwrap()
+            .ui_language
+        };
+        assert_eq!(with("en"), "en");
+        assert_eq!(with("pt-BR"), "pt-BR");
+        assert_eq!(with("auto"), "auto");
+        assert_eq!(with("klingon"), "auto");
+        // Arquivo antigo com "pt-BR" explícito continua em português.
+        let old = migrate(json!({"version": 5, "ui_language": "pt-BR"})).unwrap();
+        assert_eq!(old.ui_language, "pt-BR");
+        // Sem o campo: padrão "auto".
+        assert_eq!(migrate(json!({"version": 5})).unwrap().ui_language, "auto");
+    }
+
+    #[test]
+    fn privacy_defaults_without_a_version_bump_and_is_normalized_on_save() {
+        // Arquivo v5 sem o campo `privacy`: padrões (gerenciadores de senha bloqueados, sem áudio).
+        let s = migrate(json!({"version": 5, "sounds": false})).unwrap();
+        assert_eq!(s.version, CURRENT_VERSION);
+        assert!(s.privacy.block_defaults && !s.privacy.save_audio);
+        assert!(s.privacy.apps.is_empty());
+        let saved = Settings {
+            privacy: Privacy {
+                apps: vec!["Banco.EXE".into(), "banco".into(), "  ".into()],
+                domains: vec!["https://www.Banco.com/x".into()],
+                ..Privacy::default()
+            },
+            ..Settings::default()
+        }
+        .sanitized()
+        .unwrap();
+        assert_eq!(saved.privacy.apps, ["banco"]);
+        assert_eq!(saved.privacy.domains, ["banco.com"]);
+        let full = migrate(json!({
+            "version": 5,
+            "privacy": {"block_defaults": false, "save_audio": true, "apps": ["x"]}
+        }))
+        .unwrap();
+        assert!(!full.privacy.block_defaults && full.privacy.save_audio);
+        assert_eq!(full.privacy.apps, ["x"]);
+    }
+
+    #[test]
+    fn v4_file_gets_llm_url_and_onboarding_defaults() {
+        let s = migrate(json!({"version": 4, "llm_provider": "ollama", "sounds": false})).unwrap();
+        assert_eq!(s.version, CURRENT_VERSION);
+        assert_eq!(s.llm_url, None);
+        assert!(!s.onboarding_done);
+        assert_eq!(s.llm_provider, Some(LlmKind::Ollama));
+        assert!(!s.sounds);
+        let full = migrate(json!({
+            "version": 5,
+            "llm_url": "http://10.0.0.5:11434",
+            "onboarding_done": true
+        }))
+        .unwrap();
+        assert_eq!(full.llm_url.as_deref(), Some("http://10.0.0.5:11434"));
+        assert!(full.onboarding_done);
+    }
+
+    #[test]
+    fn llm_url_is_normalized_and_validated_on_save() {
+        let with = |url: Option<&str>| {
+            Settings {
+                llm_url: url.map(Into::into),
+                ..Settings::default()
+            }
+            .sanitized()
+        };
+        assert_eq!(with(None).unwrap().llm_url, None);
+        assert_eq!(with(Some("   ")).unwrap().llm_url, None);
+        assert_eq!(
+            with(Some(" http://localhost:11434/ "))
+                .unwrap()
+                .llm_url
+                .as_deref(),
+            Some("http://localhost:11434")
+        );
+        assert_eq!(
+            with(Some("https://llm.exemplo.com/v1/chat"))
+                .unwrap()
+                .llm_url
+                .as_deref(),
+            Some("https://llm.exemplo.com/v1/chat")
+        );
+        for bad in [
+            "localhost:11434",
+            "ftp://x",
+            "http://",
+            "http://a b",
+            "javascript:alert(1)",
+        ] {
+            assert!(with(Some(bad)).is_err(), "{bad} devia ser recusado");
+        }
+    }
+
+    #[test]
+    fn onboarding_defaults_to_not_done_and_round_trips() {
+        let d = Settings::default();
+        assert!(!d.onboarding_done);
+        let on = Settings {
+            onboarding_done: true,
+            ..d
+        };
+        let back: Settings = serde_json::from_value(serde_json::to_value(&on).unwrap()).unwrap();
+        assert!(back.onboarding_done);
+    }
+
+    #[test]
+    fn v3_file_gets_sound_defaults() {
+        let s = migrate(json!({"version": 3, "sounds": false})).unwrap();
+        assert_eq!(s.version, CURRENT_VERSION);
+        assert_eq!(s.media_mode, MediaMode::Off);
+        assert!((s.sound_volume - 0.6).abs() < 1e-6);
+        assert!((s.media_duck_factor - 0.2).abs() < 1e-6);
+        let fx = s.fx();
+        assert!(!fx.sound.enabled);
+        let loud = Settings {
+            sound_volume: 7.0,
+            ..Settings::default()
+        }
+        .sanitized()
+        .unwrap();
+        assert!((loud.sound_volume - 1.0).abs() < 1e-6);
     }
 
     #[test]

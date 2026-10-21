@@ -32,10 +32,26 @@ pub enum VyrpError {
     Context(String),
     #[error("tempo esgotado: {0}")]
     Timeout(String),
+    /// Falha de um provedor (STT/LLM) com código estável para a tela; `kind` só prefixa o log.
+    #[error("{kind}: {error}")]
+    Provider {
+        kind: &'static str,
+        error: crate::core::ui_error::UiError,
+    },
     #[error("cancelado")]
     Cancelled,
     #[error(transparent)]
     Io(#[from] std::io::Error),
+}
+
+impl VyrpError {
+    /// A versão para a tela: o código do provedor, ou só o texto quando não há tradução.
+    pub fn ui(&self) -> crate::core::ui_error::UiError {
+        match self {
+            VyrpError::Provider { error, .. } => error.clone(),
+            other => crate::core::ui_error::UiError::raw(other.to_string()),
+        }
+    }
 }
 
 pub type Result<T> = std::result::Result<T, VyrpError>;
@@ -87,6 +103,8 @@ pub enum ErrorCode {
     LlmFailed,
     InsertFailed,
     Timeout,
+    /// Ditado/colagem recusado pela lista de privacidade (app ou site bloqueado).
+    Blocked,
 }
 
 /// Estado emitido em [`EVENT_STATE`].
@@ -193,6 +211,10 @@ pub struct AppContext {
     pub before: String,
     pub selection: String,
     pub after: String,
+    /// Foco num campo de senha (UIA `IsPassword`). Com `true`, nada do campo é lido e a
+    /// privacidade bloqueia ditado e colagem.
+    #[serde(default)]
+    pub password: bool,
 }
 
 // ---------------------------------------------------------------- limpeza por LLM

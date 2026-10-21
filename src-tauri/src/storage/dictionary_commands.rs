@@ -6,6 +6,7 @@ use tauri::State;
 
 use super::dictionary::NewDictionaryEntry;
 use super::{Db, DictionaryEntry, Result, now_ms};
+use crate::core::ui_error::UiError;
 use crate::post::PostProcessor;
 
 /// O que a UI envia ao salvar. `id` presente = editar.
@@ -24,11 +25,14 @@ pub struct ImportReport {
     pub skipped: u32,
 }
 
-/// Valida e normaliza o rascunho; erro = mensagem em português para a UI.
-fn clean(draft: &DictionaryDraft) -> std::result::Result<NewDictionaryEntry, String> {
+/// Valida e normaliza o rascunho; erro = código estável para a UI traduzir.
+fn clean(draft: &DictionaryDraft) -> std::result::Result<NewDictionaryEntry, UiError> {
     let phrase = draft.phrase.trim();
     if phrase.is_empty() {
-        return Err("Digite a frase.".into());
+        return Err(UiError::new(
+            "dictionary.phrase_required",
+            "Digite a frase.",
+        ));
     }
     let replacement = draft
         .replacement
@@ -37,7 +41,10 @@ fn clean(draft: &DictionaryDraft) -> std::result::Result<NewDictionaryEntry, Str
         .filter(|s| !s.is_empty())
         .map(str::to_string);
     if draft.is_snippet && replacement.is_none() {
-        return Err("Um snippet precisa de um texto de expansão.".into());
+        return Err(UiError::new(
+            "dictionary.snippet_needs_text",
+            "Um snippet precisa de um texto de expansão.",
+        ));
     }
     Ok(NewDictionaryEntry {
         phrase: phrase.to_string(),
@@ -48,12 +55,19 @@ fn clean(draft: &DictionaryDraft) -> std::result::Result<NewDictionaryEntry, Str
     })
 }
 
-fn friendly(err: super::StorageError) -> String {
+fn raw(err: impl std::fmt::Display) -> UiError {
+    UiError::raw(err.to_string())
+}
+
+fn friendly(err: super::StorageError) -> UiError {
     let text = err.to_string();
     if text.contains("UNIQUE") {
-        "Já existe uma entrada com essa frase.".into()
+        UiError::new(
+            "dictionary.duplicate",
+            "Já existe uma entrada com essa frase.",
+        )
     } else {
-        text
+        UiError::raw(text)
     }
 }
 
@@ -62,14 +76,14 @@ pub fn save(
     db: &Db,
     draft: &DictionaryDraft,
     now: i64,
-) -> std::result::Result<DictionaryEntry, String> {
+) -> std::result::Result<DictionaryEntry, UiError> {
     let new = clean(draft)?;
     match draft.id {
         Some(id) => db
             .dictionary()
             .update(id, &new)
             .map_err(friendly)?
-            .ok_or_else(|| "Essa entrada não existe mais.".to_string()),
+            .ok_or_else(|| UiError::new("dictionary.gone", "Essa entrada não existe mais.")),
         None => db.dictionary().upsert(&new, now).map_err(friendly),
     }
 }
@@ -219,16 +233,16 @@ pub fn import_csv(db: &Db, text: &str, now: i64) -> Result<ImportReport> {
 
 // ---------------------------------------------------------------- commands Tauri
 
-fn reload(db: &Db, post: &PostProcessor) -> std::result::Result<(), String> {
-    post.reload_from_db(db).map_err(|e| e.to_string())
+fn reload(db: &Db, post: &PostProcessor) -> std::result::Result<(), UiError> {
+    post.reload_from_db(db).map_err(raw)
 }
 
 #[tauri::command]
 pub fn dictionary_list(
     db: State<'_, Db>,
     search: Option<String>,
-) -> std::result::Result<Vec<DictionaryEntry>, String> {
-    list(&db, search.as_deref()).map_err(|e| e.to_string())
+) -> std::result::Result<Vec<DictionaryEntry>, UiError> {
+    list(&db, search.as_deref()).map_err(raw)
 }
 
 #[tauri::command]
@@ -236,7 +250,7 @@ pub fn dictionary_save(
     db: State<'_, Db>,
     post: State<'_, PostProcessor>,
     draft: DictionaryDraft,
-) -> std::result::Result<DictionaryEntry, String> {
+) -> std::result::Result<DictionaryEntry, UiError> {
     let entry = save(&db, &draft, now_ms())?;
     reload(&db, &post)?;
     Ok(entry)
@@ -247,8 +261,8 @@ pub fn dictionary_delete(
     db: State<'_, Db>,
     post: State<'_, PostProcessor>,
     id: i64,
-) -> std::result::Result<bool, String> {
-    let removed = db.dictionary().soft_delete(id).map_err(|e| e.to_string())?;
+) -> std::result::Result<bool, UiError> {
+    let removed = db.dictionary().soft_delete(id).map_err(raw)?;
     reload(&db, &post)?;
     Ok(removed)
 }
@@ -258,15 +272,13 @@ pub fn dictionary_set_favorite(
     db: State<'_, Db>,
     id: i64,
     favorite: bool,
-) -> std::result::Result<bool, String> {
-    db.dictionary()
-        .set_favorite(id, favorite)
-        .map_err(|e| e.to_string())
+) -> std::result::Result<bool, UiError> {
+    db.dictionary().set_favorite(id, favorite).map_err(raw)
 }
 
 #[tauri::command]
-pub fn dictionary_export_csv(db: State<'_, Db>) -> std::result::Result<String, String> {
-    let entries = db.dictionary().list().map_err(|e| e.to_string())?;
+pub fn dictionary_export_csv(db: State<'_, Db>) -> std::result::Result<String, UiError> {
+    let entries = db.dictionary().list().map_err(raw)?;
     Ok(to_csv(&entries))
 }
 
@@ -275,8 +287,8 @@ pub fn dictionary_import_csv(
     db: State<'_, Db>,
     post: State<'_, PostProcessor>,
     csv: String,
-) -> std::result::Result<ImportReport, String> {
-    let report = import_csv(&db, &csv, now_ms()).map_err(|e| e.to_string())?;
+) -> std::result::Result<ImportReport, UiError> {
+    let report = import_csv(&db, &csv, now_ms()).map_err(raw)?;
     reload(&db, &post)?;
     Ok(report)
 }
@@ -337,7 +349,9 @@ mod tests {
             },
             3,
         );
-        assert_eq!(clash.unwrap_err(), "Já existe uma entrada com essa frase.");
+        let clash = clash.unwrap_err();
+        assert_eq!(clash.code, "dictionary.duplicate");
+        assert_eq!(clash.to_string(), "Já existe uma entrada com essa frase.");
         let gone = save(
             &db,
             &DictionaryDraft {
@@ -346,7 +360,16 @@ mod tests {
             },
             3,
         );
-        assert!(gone.is_err());
+        assert_eq!(gone.unwrap_err().code, "dictionary.gone");
+    }
+
+    #[test]
+    fn validation_errors_have_stable_codes() {
+        let db = db();
+        let empty = save(&db, &draft("  ", None, false), 1).unwrap_err();
+        assert_eq!(empty.code, "dictionary.phrase_required");
+        let snippet = save(&db, &draft("atalho", None, true), 1).unwrap_err();
+        assert_eq!(snippet.code, "dictionary.snippet_needs_text");
     }
 
     #[test]

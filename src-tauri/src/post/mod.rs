@@ -68,6 +68,7 @@ pub struct PostResult {
 pub struct PostProcessor {
     rules: RwLock<Rules>,
     commands: RwLock<CompiledCommands>,
+    vocabulary: RwLock<Vec<String>>,
 }
 
 impl Default for PostProcessor {
@@ -75,6 +76,7 @@ impl Default for PostProcessor {
         Self {
             rules: RwLock::default(),
             commands: RwLock::new(CompiledCommands::compile(&default_voice_commands())),
+            vocabulary: RwLock::default(),
         }
     }
 }
@@ -96,7 +98,16 @@ impl PostProcessor {
 
     pub fn reload_from_db(&self, db: &Db) -> storage::Result<()> {
         self.reload(&db.dictionary().list()?);
+        // Mesmo gancho de toda mudança do dicionário: o vocabulário do STT/LLM fica em
+        // cache aqui e é refeito junto com as regras (V11b).
+        *self.vocabulary.write().unwrap() = db.dictionary().vocabulary()?;
         Ok(())
+    }
+
+    /// Vocabulário do dicionário (favoritos e mais usados primeiro), para o prompt do STT
+    /// e o pedido de limpeza do LLM. Cache refeito em [`PostProcessor::reload_from_db`].
+    pub fn vocabulary(&self) -> Vec<String> {
+        self.vocabulary.read().unwrap().clone()
     }
 
     pub fn process(&self, raw: &str, opts: &PostOptions) -> PostResult {

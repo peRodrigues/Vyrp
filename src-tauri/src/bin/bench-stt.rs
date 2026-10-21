@@ -1,4 +1,4 @@
-//! Benchmark do STT local (spec V9): `cargo run --release --bin bench-stt -- <modelo.bin> <audio.wav> [idioma] [execuções]`.
+//! Benchmark do STT local (spec V9): `cargo run --release --features dev-tools --bin bench-stt -- <modelo.bin> <audio.wav> [idioma] [execuções]`.
 //! Mostra o system_info do whisper.cpp (SIMD/GPU ativos), a carga e cada transcrição.
 
 use std::time::Instant;

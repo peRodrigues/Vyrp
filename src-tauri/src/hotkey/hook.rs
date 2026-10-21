@@ -261,7 +261,7 @@ impl KeyState for AsyncKeyState {
 }
 
 /// Injeta teclas marcadas com [`VYRP_INJECT_MAGIC`] (o próprio hook as descarta).
-fn send_keys(seq: &[(u16, bool)]) -> u32 {
+pub fn send_keys(seq: &[(u16, bool)]) -> u32 {
     let inputs: Vec<INPUT> = seq
         .iter()
         .map(|&(vk, up)| INPUT {

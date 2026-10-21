@@ -5,6 +5,8 @@ description = "Vyrp: ditado por voz para Windows (segura um atalho, fala, o text
 authors = ["Vyrp"]
 edition = "2024"
 rust-version = "1.85"
+# Há mais de um binário (bench-stt): o app é este.
+default-run = "vyrp"
 
 [lib]
 # O sufixo `_lib` evita conflito de nome entre lib e bin no Windows
@@ -34,6 +36,8 @@ whisper-rs = { version = "0.16.0", features = ["tracing_backend"] }
 sha2 = "0.11.0"
 futures-util = "0.3.34"
 reqwest = { version = "0.13.5", default-features = false, features = ["stream", "rustls"] }
+tauri-plugin-autostart = "2.5.1"
+tauri-plugin-updater = "2.12.0"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.60", features = [
@@ -43,6 +47,21 @@ windows-sys = { version = "0.60", features = [
   "Win32_System_Threading",
   "Win32_UI_Input_KeyboardAndMouse",
   "Win32_UI_WindowsAndMessaging",
+  "Win32_System_DataExchange",
+  "Win32_System_Memory",
+  "Win32_System_Ole",
+  "Win32_Graphics_Gdi",
+  "Win32_Security",
+] }
+# Mídia do sistema durante o ditado (sound/media.rs, V19): volume/mute via COM.
+windows = { version = "0.62", features = [
+  "Win32_Foundation",
+  "Win32_Media_Audio",
+  "Win32_Media_Audio_Endpoints",
+  "Win32_System_Com",
+  "Win32_UI_Accessibility",
+  "Win32_System_Variant",
+  "Win32_System_Ole",
 ] }
 
 [features]
@@ -50,6 +69,19 @@ windows-sys = { version = "0.60", features = [
 # `npm run tauri build -- --features gpu-vulkan` (exige o Vulkan SDK no build).
 gpu-vulkan = ["whisper-rs/vulkan"]
 gpu-cuda = ["whisper-rs/cuda"]
+# Ferramentas de desenvolvimento (benchmark, diagnóstico): fora do build normal e do
+# instalador. Rodar com `cargo run --release --features dev-tools --bin <nome>`.
+dev-tools = []
+
+[[bin]]
+name = "bench-stt"
+path = "src/bin/bench-stt.rs"
+required-features = ["dev-tools"]
+
+[[bin]]
+name = "diag-desktop"
+path = "src/bin/diag-desktop.rs"
+required-features = ["dev-tools"]
 
 [lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

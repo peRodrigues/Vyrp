@@ -3,6 +3,8 @@
 pub mod audio;
 pub mod context;
 pub mod core;
+pub mod dictation;
+pub mod factory;
 pub mod hotkey;
 pub mod hub;
 pub mod insert;
@@ -10,12 +12,16 @@ pub mod llm;
 pub mod metrics;
 pub mod overlay;
 pub mod post;
+pub mod privacy;
 pub mod settings;
+pub mod sound;
 pub mod storage;
 pub mod stt;
+pub mod tray_i18n;
+pub mod updates;
 pub mod vad;
 
-use tauri::menu::{Menu, MenuItem};
+use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Listener, Manager, PhysicalPosition, WindowEvent};
 use tracing_appender::non_blocking::WorkerGuard;
@@ -73,16 +79,81 @@ fn show_hub(app: &AppHandle) {
     }
 }
 
+/// Item "Abrir ao iniciar o Windows" do tray (acompanha o Settings).
+struct TrayAutostart(CheckMenuItem<tauri::Wry>);
+
+/// Abriu pelo login do Windows (`--autostart`) ou num diagnóstico: fica só no tray.
+fn launched_hidden() -> bool {
+    std::env::args().any(|a| a == "--autostart" || a.starts_with("--diag-"))
+}
+
+/// Liga/desliga o "abrir ao iniciar o Windows" no sistema conforme o Settings.
+fn sync_autostart(app: &AppHandle, enabled: bool) {
+    use tauri_plugin_autostart::ManagerExt;
+    let launcher = app.autolaunch();
+    let result = match launcher.is_enabled() {
+        Ok(current) if current == enabled => return,
+        _ if enabled => launcher.enable(),
+        _ => launcher.disable(),
+    };
+    match result {
+        Ok(()) => tracing::info!(enabled, "abrir ao iniciar o Windows atualizado"),
+        Err(err) => tracing::warn!(%err, enabled, "não foi possível mudar o início com o Windows"),
+    }
+}
+
+/// Grava `autostart` no Settings (o follow_settings aplica no sistema e no tray).
+fn toggle_autostart(app: &AppHandle) {
+    let store = app.state::<settings::SettingsStore>();
+    let mut next = store.get();
+    next.autostart = !next.autostart;
+    match store.set(next) {
+        Ok(saved) => {
+            let _ = app.emit(settings::EVENT_CHANGED, &saved);
+        }
+        Err(err) => tracing::warn!(%err, "autostart não gravado"),
+    }
+}
+
 fn build_tray(app: &AppHandle) -> tauri::Result<()> {
-    let open = MenuItem::with_id(app, "open", "Abrir Vyrp", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "Sair", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&open, &quit])?;
+    let lang = tray_i18n::current(app);
+    let open = MenuItem::with_id(app, "open", tray_i18n::open(lang), true, None::<&str>)?;
+    let autostart_on = app
+        .try_state::<settings::SettingsStore>()
+        .is_some_and(|s| s.get().autostart);
+    let autostart = CheckMenuItem::with_id(
+        app,
+        "autostart",
+        tray_i18n::autostart(lang),
+        true,
+        autostart_on,
+        None::<&str>,
+    )?;
+    let update = MenuItem::with_id(
+        app,
+        "update",
+        tray_i18n::update(lang, &tray_i18n::UpdateLabel::Check),
+        true,
+        None::<&str>,
+    )?;
+    let quit = MenuItem::with_id(app, "quit", tray_i18n::quit(lang), true, None::<&str>)?;
+    let separator = PredefinedMenuItem::separator(app)?;
+    let menu = Menu::with_items(app, &[&open, &autostart, &update, &separator, &quit])?;
+    app.manage(tray_i18n::TrayItems {
+        open: open.clone(),
+        autostart: autostart.clone(),
+        quit: quit.clone(),
+    });
+    app.manage(TrayAutostart(autostart));
+    app.manage(updates::Updates::new(update));
     let mut tray = TrayIconBuilder::with_id("main")
         .tooltip("Vyrp")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {
             "open" => show_hub(app),
+            "autostart" => toggle_autostart(app),
+            "update" => updates::on_click(app),
             "quit" => {
                 tracing::info!("saindo pelo tray");
                 app.exit(0);
@@ -136,6 +207,11 @@ fn start_hotkeys(app: &AppHandle) {
         let emitter = app.clone();
         match hotkey::start(gestures, move |gesture| {
             let _ = emitter.emit(hotkey::EVENT_GESTURE, gesture);
+            if let Some(orchestrator) =
+                emitter.try_state::<std::sync::Arc<dictation::Orchestrator>>()
+            {
+                orchestrator.on_gesture(gesture);
+            }
         }) {
             Ok(service) => {
                 app.manage(service);
@@ -177,6 +253,106 @@ fn follow_settings(app: &AppHandle) {
         }
         if let Some(audio) = handle.try_state::<audio::AudioService>() {
             audio.configure(next.audio());
+        }
+        if let Some(fx) = handle.try_state::<sound::Fx>() {
+            fx.set_params(next.fx());
+        }
+        sync_autostart(&handle, next.autostart);
+        if let Some(item) = handle.try_state::<TrayAutostart>() {
+            let _ = item.0.set_checked(next.autostart);
+        }
+        tray_i18n::apply(&handle);
+    });
+}
+
+/// Sons/mídia (V19) e o orquestrador do ditado (V11), com contexto e inserção pelas
+/// fachadas (`context::default_source`, `insert::default_inserter`).
+fn start_dictation(app: &AppHandle) {
+    let fx_params = app.state::<settings::SettingsStore>().get().fx();
+    let marker_dir = app.path().app_data_dir().ok();
+    app.manage(sound::Fx::start(fx_params, marker_dir));
+    let context = context::default_source();
+    app.manage(dictation::Orchestrator::new(
+        app.clone(),
+        context.clone(),
+        privacy::guard_inserter(app.clone(), insert::default_inserter(), context),
+    ));
+}
+
+/// `--diag-dictate <segundos>`: simula PttStart, espera e PttEnd (o mesmo caminho do
+/// atalho, pelo orquestrador). `--diag-dictate-wav <arquivo>`: o pipeline inteiro com um
+/// WAV no lugar do microfone. Os dois colam no app em foco.
+fn diag_dictate(app: &AppHandle) {
+    let args: Vec<String> = std::env::args().collect();
+    let value = |flag: &str| {
+        args.iter()
+            .position(|a| a == flag)
+            .and_then(|i| args.get(i + 1).cloned())
+    };
+    let secs = value("--diag-dictate").and_then(|v| v.parse::<u64>().ok());
+    let wav = value("--diag-dictate-wav");
+    if secs.is_none() && wav.is_none() {
+        return;
+    }
+    // Num uso real o Vyrp fica no tray e o foco está no app onde se dita; aqui o hub
+    // abriria por cima e receberia o Ctrl+V. Esconder devolve o foco ao app anterior.
+    if let Some(hub) = app.get_webview_window(HUB) {
+        let _ = hub.hide();
+    }
+    let app = app.clone();
+    let value = move |flag: &str| {
+        args.iter()
+            .position(|a| a == flag)
+            .and_then(|i| args.get(i + 1).cloned())
+    };
+    std::thread::spawn(move || {
+        // Espera o modelo e o VAD ficarem prontos, como num uso normal depois do boot.
+        let engine = &app.state::<stt::LocalStt>().0;
+        for _ in 0..240 {
+            if engine.status().state != stt::whisper::LoadState::Loading
+                && engine.status().state != stt::whisper::LoadState::None
+            {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        // Regra de segurança: diagnóstico só injeta na janela de teste aberta pelo próprio
+        // teste (HWND + título). Sem os dois, não há ditado de diagnóstico.
+        let target = value("--diag-target-hwnd")
+            .and_then(|v| v.parse::<isize>().ok())
+            .zip(value("--diag-target"));
+        let Some((hwnd, title_contains)) = target else {
+            tracing::error!(
+                "diag: informe --diag-target-hwnd <hwnd> e --diag-target <título>; nada foi feito"
+            );
+            return;
+        };
+        let orchestrator = dictation::Orchestrator::new(
+            app.clone(),
+            context::diag_source(hwnd, title_contains.clone()),
+            insert::diag_inserter(insert::DiagTarget {
+                hwnd,
+                title_contains,
+            }),
+        );
+        if let Some(path) = wav {
+            match std::fs::read(&path)
+                .map_err(|e| e.to_string())
+                .and_then(|b| audio::wav::decode_to_16k_mono(&b))
+            {
+                Ok(pcm) => {
+                    tracing::info!(%path, "diag: ditado com WAV");
+                    orchestrator.dictate_clip(core::types::AudioClip::new(pcm));
+                }
+                Err(err) => tracing::error!(%path, error = %err, "diag: WAV inválido"),
+            }
+        } else if let Some(secs) = secs {
+            tracing::info!(secs, "diag: ditado simulado (PttStart)");
+            orchestrator.on_gesture(core::types::GestureEvent::PttStart);
+            std::thread::sleep(std::time::Duration::from_secs(secs));
+            tracing::info!("diag: ditado simulado (PttEnd)");
+            orchestrator.on_gesture(core::types::GestureEvent::PttEnd);
         }
     });
 }
@@ -248,7 +424,9 @@ fn transcribe_for_diag(app: &AppHandle, clip: &core::types::AudioClip) {
         vocabulary: Vec::new(),
     };
     let status = engine.status();
-    match engine.transcribe_blocking(clip, &opts) {
+    // Mesmo caminho do ditado: fábrica do Settings (VAD → política local/nuvem).
+    let stt = factory::build_stt(&settings, app);
+    match tauri::async_runtime::block_on(stt.transcribe(clip, &opts)) {
         Ok(t) => tracing::info!(
             model = ?status.model,
             backend = status.backend,
@@ -331,8 +509,18 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             show_hub(app)
         }))
+        // Abrir no login do Windows: entrada em HKCU\...\Run com `--autostart`.
+        .plugin(
+            tauri_plugin_autostart::Builder::new()
+                .args(["--autostart"])
+                .build(),
+        )
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             app_info,
+            context::context_rules,
+            context::set_context_rules,
+            insert::insert_copy_last,
             stt::model_list,
             stt::model_download,
             stt::model_status,
@@ -351,9 +539,18 @@ pub fn run() {
             hub::history_list,
             hub::history_delete,
             hub::history_clear,
+            hub::history_clear_audio,
             hub::list_microphones,
             hub::settings_defaults,
-            hub::stt_models,
+            hub::audio_monitor_start,
+            hub::audio_monitor_stop,
+            hub::dictation_test_start,
+            hub::dictation_test_stop,
+            hub::provider_test,
+            hub::metrics_report,
+            hub::diagnostics_text,
+            hub::export_log,
+            hub::open_log_dir,
             overlay::overlay_demo,
         ])
         .setup(|app| {
@@ -362,6 +559,7 @@ pub fn run() {
                 eprintln!("log desativado: {err}");
             }
             settings::init(handle)?;
+            context::init(handle);
             if let Err(err) = storage::init(handle) {
                 tracing::error!(error = %err, "banco de dados indisponível");
             }
@@ -371,13 +569,32 @@ pub fn run() {
             overlay::init(handle);
             start_hotkeys(handle);
             start_audio(handle);
+            if let Err(err) = vad::init(handle) {
+                tracing::error!(error = %err, "VAD indisponível");
+            }
             if let Err(err) = stt::init(handle) {
                 tracing::error!(error = %err, "transcrição local indisponível");
             }
+            start_dictation(handle);
             follow_settings(handle);
+            sync_autostart(
+                handle,
+                handle.state::<settings::SettingsStore>().get().autostart,
+            );
+            // O hub nasce escondido (tauri.conf): no login do Windows e nos diagnósticos o
+            // Vyrp fica só no tray, sem pegar o foco de quem está trabalhando.
+            if launched_hidden() {
+                tracing::info!("iniciado sem janela (tray)");
+            } else {
+                show_hub(handle);
+            }
+            if !std::env::args().any(|a| a.starts_with("--diag-")) {
+                updates::start(handle);
+            }
             diag_record(handle);
             diag_model(handle);
             diag_transcribe(handle);
+            diag_dictate(handle);
             Ok(())
         })
         .on_window_event(|window, event| {

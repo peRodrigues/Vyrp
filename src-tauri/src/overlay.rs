@@ -50,6 +50,7 @@ pub fn demo_script() -> Vec<Step> {
         ErrorCode::LlmFailed,
         ErrorCode::InsertFailed,
         ErrorCode::Timeout,
+        ErrorCode::Blocked,
     ] {
         steps.push(step(DictationState::Error { code }, 1, false));
     }
@@ -144,7 +145,7 @@ mod tests {
             .iter()
             .filter(|s| matches!(s.state, DictationState::Error { .. }))
             .count();
-        assert_eq!(errors, 6);
+        assert_eq!(errors, 7);
     }
 
     #[test]
