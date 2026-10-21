@@ -1,6 +1,6 @@
 [package]
 name = "vyrp"
-version = "0.1.0"
+version = "0.1.1"
 description = "Vyrp: ditado por voz para Windows (segura um atalho, fala, o texto é colado no app em foco)"
 authors = ["Vyrp"]
 edition = "2024"
