@@ -325,6 +325,17 @@ pub fn audio_ctx_for(duration_ms: u64) -> i32 {
     if ctx >= FULL_AUDIO_CTX { 0 } else { ctx }
 }
 
+/// Contexto do encoder para um modelo com `n_mels` bandas. Os modelos v3 (128 mels, ex.:
+/// large-v3-turbo) entram em laço e repetem frases com o contexto reduzido: neles vale
+/// o padrão (30 s). Medido em 2026-10-21 (V-GPU): turbo com 11 s repetia a 1ª frase.
+pub fn audio_ctx_for_model(n_mels: i32, duration_ms: u64) -> i32 {
+    if n_mels >= 128 {
+        0
+    } else {
+        audio_ctx_for(duration_ms)
+    }
+}
+
 /// Idioma fixo se houver exatamente um; senão autodetecção.
 pub fn language_for(opts: &SttOptions) -> Option<&str> {
     match opts.languages.as_slice() {
@@ -366,7 +377,7 @@ fn run_pass(
     params.set_print_progress(false);
     params.set_print_realtime(false);
     params.set_print_timestamps(false);
-    params.set_audio_ctx(audio_ctx_for(clip.duration_ms()));
+    params.set_audio_ctx(audio_ctx_for_model(ctx.model_n_mels(), clip.duration_ms()));
     if pass == Pass::WarmUp {
         // Só aloca buffers: um token, sem re-decodificação por temperatura (silêncio
         // faz o whisper entrar em laço e o fallback multiplica o custo).
@@ -473,6 +484,8 @@ mod tests {
         assert_eq!(audio_ctx_for(6_000), 300 + AUDIO_CTX_MARGIN);
         assert_eq!(audio_ctx_for(28_000), 0, "perto de 30 s usa o padrão");
         assert_eq!(audio_ctx_for(120_000), 0);
+        assert_eq!(audio_ctx_for_model(80, 6_000), 300 + AUDIO_CTX_MARGIN);
+        assert_eq!(audio_ctx_for_model(128, 6_000), 0, "v3: contexto cheio");
     }
 
     #[test]
