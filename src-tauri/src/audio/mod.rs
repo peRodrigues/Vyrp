@@ -79,8 +79,11 @@ pub enum AudioEvent {
     },
 }
 
+/// Cópia do PCM do ditado enquanto ele é gravado (decodificação incremental, V9b).
+pub type PcmTap = Sender<Vec<i16>>;
+
 enum Msg {
-    Begin,
+    Begin(Option<PcmTap>),
     End(SyncSender<Result<AudioClip>>),
     Cancel,
     Configure(AudioConfig),
@@ -129,7 +132,14 @@ impl AudioService {
     /// Começa a gravar o ditado (PttStart/LockStart).
     pub fn begin(&self) {
         *self.owner.lock().unwrap() = Some(AudioOwner::Dictation);
-        let _ = self.tx.send(Msg::Begin);
+        let _ = self.tx.send(Msg::Begin(None));
+    }
+
+    /// Como [`begin`](Self::begin), e cada bloco gravado (pre-roll incluso, na mesma
+    /// ordem do clipe final) também vai para `tap` até o fim ou cancelamento.
+    pub fn begin_tapped(&self, tap: PcmTap) {
+        *self.owner.lock().unwrap() = Some(AudioOwner::Dictation);
+        let _ = self.tx.send(Msg::Begin(Some(tap)));
     }
 
     /// Medidor de nível (hub/onboarding): não começa por cima de um ditado.
@@ -140,7 +150,7 @@ impl AudioService {
             return false;
         }
         *owner = Some(AudioOwner::Monitor);
-        let _ = self.tx.send(Msg::Begin);
+        let _ = self.tx.send(Msg::Begin(None));
         true
     }
 
@@ -190,6 +200,7 @@ struct Session {
     meter: LevelMeter,
     started: Instant,
     full: bool,
+    tap: Option<PcmTap>,
 }
 
 struct Worker {
@@ -243,7 +254,7 @@ impl Worker {
                 },
             };
             match msg {
-                Msg::Begin => self.begin(),
+                Msg::Begin(tap) => self.begin(tap),
                 Msg::End(reply) => {
                     let clip = self.end(&rx);
                     let _ = reply.send(clip);
@@ -326,7 +337,7 @@ impl Worker {
         }
     }
 
-    fn begin(&mut self) {
+    fn begin(&mut self, tap: Option<PcmTap>) {
         if self.session.is_some() {
             return;
         }
@@ -345,12 +356,19 @@ impl Worker {
             return;
         }
         self.aborted = false;
+        let rec = Recording::with_preroll(self.preroll.take());
+        if let Some(tap) = &tap
+            && !rec.pcm.is_empty()
+        {
+            let _ = tap.send(rec.pcm.clone());
+        }
         self.session = Some(Session {
-            rec: Recording::with_preroll(self.preroll.take()),
+            rec,
             silence: SilenceWatch::default(),
             meter: LevelMeter::new(LEVEL_WINDOW),
             started: Instant::now(),
             full: false,
+            tap,
         });
         tracing::debug!(device = ?self.device, "gravação iniciada");
     }
@@ -403,7 +421,13 @@ impl Worker {
         let duration = if session.full {
             None
         } else {
-            session.rec.push(pcm)
+            let kept = session.rec.pcm.len();
+            let alert = session.rec.push(pcm);
+            if let Some(tap) = &session.tap {
+                // Só o que entrou na gravação (o teto de 20 min corta o resto).
+                let _ = tap.send(session.rec.pcm[kept..].to_vec());
+            }
+            alert
         };
         if duration == Some(DurationAlert::Full) {
             session.full = true;
@@ -565,7 +589,7 @@ mod tests {
     fn sent(rx: &Receiver<Msg>) -> Vec<&'static str> {
         rx.try_iter()
             .map(|m| match m {
-                Msg::Begin => "begin",
+                Msg::Begin(_) => "begin",
                 Msg::Cancel => "cancel",
                 _ => "outro",
             })

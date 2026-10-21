@@ -11,6 +11,7 @@
 
 pub mod catalog;
 pub mod cloud;
+pub mod incremental;
 pub mod models;
 pub mod whisper;
 

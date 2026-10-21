@@ -278,6 +278,8 @@ struct Session {
     /// Preenchido em paralelo à fala (a captura não atrasa o início).
     context: Arc<Mutex<Option<AppContext>>>,
     generation: u64,
+    /// Decodificação incremental (V9b): descartar a sessão cancela a decodificação.
+    incremental: Option<crate::stt::incremental::Incremental>,
 }
 
 pub struct Orchestrator {
@@ -375,7 +377,18 @@ impl Orchestrator {
                 .emit(EVENT_MONITOR, serde_json::json!({ "active": false }));
         }
         audio.cancel();
-        audio.begin();
+        // Ditado real com STT local: os trechos fechados por pausas já vão sendo
+        // decodificados enquanto a pessoa fala (V9b).
+        let incremental = match (!test).then(|| self.incremental()).flatten() {
+            Some((session, tap)) => {
+                audio.begin_tapped(tap);
+                Some(session)
+            }
+            None => {
+                audio.begin();
+                None
+            }
+        };
         if let Some(fx) = self.fx() {
             fx.on_start();
         }
@@ -388,6 +401,7 @@ impl Orchestrator {
             },
             context: slot,
             generation,
+            incremental,
         });
         self.emit(DictationState::Listening { locked });
         tracing::info!(locked, test, "ditado: ouvindo");
@@ -459,6 +473,29 @@ impl Orchestrator {
             .map_err(|e| e.ui())
     }
 
+    /// Sessão incremental quando o STT é só local e o modelo e o VAD estão prontos; a
+    /// nuvem segue com o clipe inteiro.
+    fn incremental(&self) -> Option<(crate::stt::incremental::Incremental, crate::audio::PcmTap)> {
+        let settings = self.app.state::<SettingsStore>().get();
+        if settings.stt_policy != crate::stt::cloud::SttPolicy::LocalOnly {
+            return None;
+        }
+        let local = self.app.try_state::<crate::stt::LocalStt>()?;
+        let vad = self.app.try_state::<Arc<crate::vad::VadService>>()?;
+        if !local.0.is_ready() {
+            return None;
+        }
+        let opts = SttOptions {
+            languages: settings.dictation_languages.clone(),
+            vocabulary: self.vocabulary(),
+        };
+        Some(crate::stt::incremental::Incremental::start(
+            Arc::clone(&local.0) as Arc<dyn crate::stt::incremental::SegmentDecoder>,
+            Arc::clone(&vad),
+            opts,
+        ))
+    }
+
     /// Vocabulário do dicionário (cache do pós-processo), com teto.
     fn vocabulary(&self) -> Vec<String> {
         let mut words = self
@@ -525,7 +562,14 @@ impl Orchestrator {
         };
         let command = if session.locked { "lock" } else { "ptt" };
         let context = session.context.lock().unwrap().clone().unwrap_or_default();
-        self.process(clip, context, command, session.marks, session.generation);
+        self.process(
+            clip,
+            context,
+            command,
+            session.marks,
+            session.generation,
+            session.incremental.take(),
+        );
     }
 
     /// Diagnóstico: roda o pipeline com um clipe pronto, como se fosse um PTT.
@@ -538,7 +582,7 @@ impl Orchestrator {
             ..LatencyMarks::default()
         };
         let context = self.context.capture();
-        self.process(clip, context, "ptt", marks, generation);
+        self.process(clip, context, "ptt", marks, generation, None);
     }
 
     fn process(
@@ -548,6 +592,7 @@ impl Orchestrator {
         command: &'static str,
         marks: LatencyMarks,
         generation: u64,
+        incremental: Option<crate::stt::incremental::Incremental>,
     ) {
         let me = Arc::clone(self);
         std::thread::Builder::new()
@@ -569,6 +614,14 @@ impl Orchestrator {
                     return;
                 }
                 let stt = crate::factory::build_stt(&settings, &me.app);
+                // V9b: usa o que já foi decodificado durante a fala; sem nada adiantado,
+                // o motor normal recebe o clipe inteiro.
+                let stt: Arc<dyn SttEngine> = match incremental {
+                    Some(session) => {
+                        Arc::new(crate::stt::incremental::IncrementalStt::new(session, stt))
+                    }
+                    None => stt,
+                };
                 let llm = crate::factory::build_llm(&settings, &me.app);
                 let post = me.app.state::<PostProcessor>();
                 let stt_name = match settings.stt_policy {

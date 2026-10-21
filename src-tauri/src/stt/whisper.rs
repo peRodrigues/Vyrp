@@ -2,6 +2,7 @@
 //! quente (com uma decodificação de aquecimento), atrás do trait [`SttEngine`].
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -19,10 +20,21 @@ use crate::core::ui_error::UiError;
 const MIN_AUDIO_MS: u64 = 300;
 /// Teto do prompt inicial (vocabulário); o whisper usa ~224 tokens de contexto.
 const MAX_PROMPT_CHARS: usize = 600;
+/// Quanto do texto já decodificado entra no prompt do próximo segmento (V9b).
+const MAX_PREVIOUS_CHARS: usize = 200;
 /// Contexto do encoder = 30 s de áudio (1500 quadros de 20 ms).
 const FULL_AUDIO_CTX: i32 = 1500;
 /// Folga sobre a duração real ao reduzir o contexto do encoder.
 const AUDIO_CTX_MARGIN: i32 = 128;
+
+/// Segmento que continua um ditado já em parte decodificado (incremental, V9b).
+#[derive(Debug, Clone, Default)]
+pub struct Continuation {
+    /// Texto dos segmentos anteriores: o fim dele vai no prompt (contexto e grafia).
+    pub previous: String,
+    /// `true` interrompe a decodificação (Cancel do ditado).
+    pub abort: Option<Arc<AtomicBool>>,
+}
 
 /// Como rodar o whisper: ditado normal ou passada de aquecimento.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -208,6 +220,23 @@ impl WhisperEngine {
         let ctx = self.context()?;
         run(&ctx, clip, opts)
     }
+
+    /// Como [`transcribe_blocking`](Self::transcribe_blocking), para um segmento que
+    /// continua `cont.previous` e pode ser interrompido por `cont.abort`.
+    pub fn transcribe_continuing(
+        &self,
+        clip: &AudioClip,
+        opts: &SttOptions,
+        cont: &Continuation,
+    ) -> Result<Transcript> {
+        let ctx = self.context()?;
+        run_pass(&ctx, clip, opts, Pass::Dictation, cont)
+    }
+
+    /// Há modelo carregado e pronto?
+    pub fn is_ready(&self) -> bool {
+        self.inner.lock().unwrap().ctx.is_some()
+    }
 }
 
 #[async_trait]
@@ -227,7 +256,14 @@ fn load_and_warm(path: &std::path::Path) -> std::result::Result<WhisperContext, 
     let ctx = WhisperContext::new_with_params(path, params).map_err(|e| e.to_string())?;
     // Aquecimento: aloca os buffers de computação agora, não no primeiro ditado.
     let warm = AudioClip::new(vec![0; SAMPLE_RATE as usize]);
-    run_pass(&ctx, &warm, &SttOptions::default(), Pass::WarmUp).map_err(|e| e.to_string())?;
+    run_pass(
+        &ctx,
+        &warm,
+        &SttOptions::default(),
+        Pass::WarmUp,
+        &Continuation::default(),
+    )
+    .map_err(|e| e.to_string())?;
     Ok(ctx)
 }
 
@@ -256,6 +292,31 @@ pub fn initial_prompt(vocabulary: &[String]) -> String {
     prompt
 }
 
+/// Prompt de um segmento que continua o ditado: vocabulário e, por último (o whisper
+/// fica com o fim do prompt quando passa do limite), o fim do texto anterior.
+pub fn continuation_prompt(vocabulary: &[String], previous: &str) -> String {
+    let vocab = initial_prompt(vocabulary);
+    let previous = previous.trim();
+    if previous.is_empty() {
+        return vocab;
+    }
+    let chars: Vec<char> = previous.chars().collect();
+    let mut tail: String = chars[chars.len().saturating_sub(MAX_PREVIOUS_CHARS)..]
+        .iter()
+        .collect();
+    if chars.len() > MAX_PREVIOUS_CHARS {
+        // Começa numa palavra inteira.
+        if let Some(space) = tail.find(' ') {
+            tail = tail[space + 1..].to_string();
+        }
+    }
+    if vocab.is_empty() {
+        tail
+    } else {
+        format!("{vocab}. {tail}")
+    }
+}
+
 /// Contexto do encoder proporcional ao áudio (o whisper sempre codifica 30 s; para um
 /// ditado de poucos segundos isso é a maior parte da latência). 0 = padrão (30 s).
 pub fn audio_ctx_for(duration_ms: u64) -> i32 {
@@ -272,8 +333,14 @@ pub fn language_for(opts: &SttOptions) -> Option<&str> {
     }
 }
 
+/// Callback de abort do whisper.cpp: lê o `AtomicBool` de [`Continuation::abort`].
+unsafe extern "C" fn abort_requested(data: *mut std::ffi::c_void) -> bool {
+    // SAFETY: `data` aponta para o `AtomicBool` que `run_pass` mantém vivo.
+    unsafe { (*(data as *const AtomicBool)).load(Ordering::Relaxed) }
+}
+
 fn run(ctx: &WhisperContext, clip: &AudioClip, opts: &SttOptions) -> Result<Transcript> {
-    run_pass(ctx, clip, opts, Pass::Dictation)
+    run_pass(ctx, clip, opts, Pass::Dictation, &Continuation::default())
 }
 
 fn run_pass(
@@ -281,6 +348,7 @@ fn run_pass(
     clip: &AudioClip,
     opts: &SttOptions,
     pass: Pass,
+    cont: &Continuation,
 ) -> Result<Transcript> {
     if clip.duration_ms() < MIN_AUDIO_MS {
         return Ok(Transcript::default());
@@ -306,18 +374,33 @@ fn run_pass(
         params.set_max_tokens(1);
         params.set_temperature_inc(0.0);
     }
-    let prompt = initial_prompt(&opts.vocabulary);
+    let prompt = continuation_prompt(&opts.vocabulary, &cont.previous);
     if !prompt.is_empty() {
         params.set_initial_prompt(&prompt);
+    }
+    // `abort` vive até o fim desta função, depois do `state.full` que lê o ponteiro.
+    // (Não usar `set_abort_callback_safe` do whisper-rs 0.16: o trampoline dele lê o
+    // closure com o tipo errado e o encode falha com -6.)
+    let abort = cont.abort.clone();
+    if let Some(flag) = &abort {
+        // SAFETY: função `extern "C"` compatível com `ggml_abort_callback`; o dado é um
+        // `AtomicBool` mantido vivo por `abort` durante toda a decodificação.
+        unsafe {
+            params.set_abort_callback(Some(abort_requested));
+            params.set_abort_callback_user_data(Arc::as_ptr(flag) as *mut std::ffi::c_void);
+        }
     }
     let samples: Vec<f32> = clip
         .pcm
         .iter()
         .map(|&s| f32::from(s) / f32::from(i16::MAX))
         .collect();
-    state
-        .full(params, &samples)
-        .map_err(|e| VyrpError::Stt(e.to_string()))?;
+    let decoded = state.full(params, &samples);
+    // Abortado o whisper.cpp devolve erro genérico (-6): vale o pedido de cancelamento.
+    if abort.as_ref().is_some_and(|a| a.load(Ordering::Relaxed)) {
+        return Err(VyrpError::Cancelled);
+    }
+    decoded.map_err(|e| VyrpError::Stt(e.to_string()))?;
 
     let mut segments = Vec::new();
     for segment in state.as_iter() {
@@ -367,6 +450,21 @@ mod tests {
         let many: Vec<String> = (0..500).map(|i| format!("termo{i}")).collect();
         assert!(initial_prompt(&many).len() <= MAX_PROMPT_CHARS);
         assert!(initial_prompt(&[]).is_empty());
+    }
+
+    #[test]
+    fn continuation_prompt_ends_with_previous_text() {
+        let vocab = vec!["Vyrp".to_string()];
+        assert_eq!(continuation_prompt(&vocab, ""), "Vyrp");
+        assert_eq!(
+            continuation_prompt(&vocab, " Primeira frase. "),
+            "Vyrp. Primeira frase."
+        );
+        assert_eq!(continuation_prompt(&[], "só texto"), "só texto");
+        let long = "palavra ".repeat(100);
+        let prompt = continuation_prompt(&[], &long);
+        assert!(prompt.chars().count() <= MAX_PREVIOUS_CHARS);
+        assert!(prompt.starts_with("palavra"), "corta em palavra inteira");
     }
 
     #[test]
