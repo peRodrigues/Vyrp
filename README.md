@@ -67,8 +67,54 @@ Os modelos ficam em `%APPDATA%\app.vyrp.desktop\models` e são baixados pelo app
 src-tauri\target\release\vyrp.exe --diag-model small-q5_1           # baixa, verifica e carrega
 src-tauri\target\release\vyrp.exe --diag-transcribe C:\caminho\fala.wav
 src-tauri\target\release\vyrp.exe --diag-record 6                    # grava do mic e transcreve
-cd src-tauri; cargo run --release --bin bench-stt -- <modelo.bin> <fala.wav> pt 3
+cd src-tauri; cargo run --release --features dev-tools --bin bench-stt -- <modelo.bin> <fala.wav> pt 3
 ```
+
+As ferramentas de desenvolvimento (`bench-stt`, `diag-desktop`) só compilam com a feature
+`dev-tools` e não entram no instalador.
+
+## Instalador, início com o Windows e atualizações
+
+```powershell
+npm run tauri build      # src-tauri\target\release\bundle\nsis\Vyrp_<versão>_x64-setup.exe (+ .msi)
+```
+
+- O instalador NSIS é por usuário (sem admin). Instalação silenciosa:
+  `Vyrp_<versão>_x64-setup.exe /S /D=C:\caminho` (desinstalar: `uninstall.exe /S`).
+- **Abrir ao iniciar o Windows**: Settings `autostart` ou o item do tray. O login abre o
+  Vyrp com `--autostart`: só o ícone no tray, sem abrir o hub e sem pegar o foco.
+- **Atualizações**: o app procura o `latest.json` do último Release de
+  `peRodrigues/Vyrp` 1 min depois de abrir e a cada 6 h. Instalar é sempre um clique no
+  tray ("Instalar atualização x.y.z"). O pacote é verificado pela chave pública do
+  `tauri.conf.json` (`plugins.updater.pubkey`).
+
+### Publicar uma versão
+
+1. Suba a versão em `src-tauri/tauri.conf.json` (e `package.json`/`Cargo.toml`).
+2. `git tag v0.2.0 && git push origin v0.2.0`: o workflow `Release` builda o instalador
+   (CPU), assina os artefatos do updater e publica o Release com o `latest.json`.
+   A variante com GPU (Vulkan) roda só pelo "Run workflow" manual, marcando `vulkan`.
+
+**Chave do updater (uma vez):** o par foi gerado com `npx tauri signer generate`. A
+chave PRIVADA nunca entra no repositório. Cadastre em *Settings → Secrets and variables →
+Actions* do GitHub:
+
+- `TAURI_SIGNING_PRIVATE_KEY`: o conteúdo do arquivo da chave privada;
+- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`: vazio (a chave foi gerada sem senha).
+
+Perder a chave privada significa que as instalações existentes não aceitam mais
+atualizações: guarde uma cópia num cofre de senhas.
+
+### Assinatura de código e SmartScreen
+
+O instalador NÃO é assinado com certificado de código. No primeiro download o Windows
+mostra "O Windows protegeu o computador" (SmartScreen): *Mais informações → Executar
+assim mesmo*. Para tirar o aviso é preciso assinar o `.exe`/`.msi` com um certificado de
+assinatura de código (OV/EV, ou o Azure Trusted Signing) configurado em
+`bundle.windows` (`certificateThumbprint` ou `signCommand`). A reputação do SmartScreen
+vem com o tempo e os downloads; com certificado EV ela é imediata. A assinatura do
+updater (minisign) é outra coisa: garante que a atualização veio de nós, mas não
+silencia o SmartScreen.
 
 ## Estrutura
 

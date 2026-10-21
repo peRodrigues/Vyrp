@@ -19,7 +19,8 @@
         "height": 640,
         "minWidth": 720,
         "minHeight": 480,
-        "center": true
+        "center": true,
+        "visible": false
       },
       {
         "label": "overlay",
@@ -44,13 +45,50 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis", "msi"],
+    "targets": [
+      "nsis",
+      "msi"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "publisher": "Vyrp",
+    "shortDescription": "Ditado por voz para Windows",
+    "longDescription": "Segure um atalho, fale e solte: o Vyrp transcreve localmente (whisper) e cola o texto no app em foco.",
+    "category": "Productivity",
+    "copyright": "© 2026 Vyrp",
+    "createUpdaterArtifacts": false,
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "installerIcon": "icons/icon.ico",
+        "languages": [
+          "PortugueseBR",
+          "English"
+        ],
+        "displayLanguageSelector": false
+      },
+      "wix": {
+        "language": [
+          "pt-BR",
+          "en-US"
+        ]
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDJFQUI1MTY1NjExOTdDNkUKUldSdWZCbGhaVkdyTHBUdEZWSG1DaXR4M044M1UzcFhxM2tzMHYvSzg5MWEwRUx6MnNJNEQ3R3gK",
+      "endpoints": [
+        "https://github.com/peRodrigues/Vyrp/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }
