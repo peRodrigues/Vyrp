@@ -4,6 +4,7 @@ use rusqlite::{OptionalExtension, Row, params};
 use serde::{Deserialize, Serialize};
 
 use super::{Db, Result};
+use crate::metrics::HistoryMetric;
 use crate::settings::HistoryRetention;
 
 const DAY_MS: i64 = 24 * 60 * 60 * 1000;
@@ -210,6 +211,40 @@ impl<'a> HistoryRepo<'a> {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
+    /// Só os números e códigos de cada ditado (nada de texto, app ou URL), do mais novo
+    /// para o mais velho: é o que as métricas e o diagnóstico podem ler.
+    pub fn metrics(&self, limit: u32) -> Result<Vec<HistoryMetric>> {
+        let conn = self.0.conn();
+        let mut stmt = conn.prepare(
+            "SELECT created_at, duration_ms, word_count, latency_stt_ms, latency_llm_ms, \
+             latency_total_ms, fallback_level, status, engine, llm_provider \
+             FROM history ORDER BY created_at DESC, rowid DESC LIMIT ?1",
+        )?;
+        let rows = stmt.query_map([limit], |r| {
+            Ok(HistoryMetric {
+                created_at: r.get(0)?,
+                duration_ms: r.get(1)?,
+                word_count: r.get(2)?,
+                latency_stt_ms: r.get(3)?,
+                latency_llm_ms: r.get(4)?,
+                latency_total_ms: r.get(5)?,
+                fallback_level: r.get(6)?,
+                status: r.get(7)?,
+                engine: r.get(8)?,
+                llm_provider: r.get(9)?,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Apaga só os áudios guardados (o texto e o resto do histórico ficam). Devolve quantos.
+    pub fn clear_audio(&self) -> Result<u64> {
+        Ok(self.0.conn().execute(
+            "UPDATE history SET audio = NULL WHERE audio IS NOT NULL",
+            [],
+        )? as u64)
+    }
+
     pub fn count(&self) -> Result<u64> {
         Ok(self
             .0
@@ -321,6 +356,35 @@ mod tests {
         assert_eq!(db.history().list(Some("100%"), 10, 0).unwrap().len(), 1);
         assert_eq!(db.history().list(Some("%"), 10, 0).unwrap().len(), 1);
         assert_eq!(db.history().list(Some("   "), 10, 0).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn metrics_rows_carry_numbers_and_codes_only() {
+        let db = db();
+        let mut a = entry("texto secreto do usuário", 10);
+        a.latency_stt_ms = Some(400);
+        a.latency_total_ms = Some(900);
+        a.app = Some("notepad.exe".into());
+        a.status = "inserted".into();
+        let mut b = entry("outro texto", 20);
+        b.status = "stt_failed".into();
+        b.fallback_level = 1;
+        db.history().insert(&a).unwrap();
+        db.history().insert(&b).unwrap();
+        let rows = db.history().metrics(10).unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].status, "stt_failed", "mais novo primeiro");
+        assert_eq!(
+            (rows[1].latency_stt_ms, rows[1].latency_total_ms),
+            (Some(400), Some(900))
+        );
+        assert_eq!(rows[0].fallback_level, 1);
+        // O tipo nem tem onde guardar texto: confira pela serialização.
+        let json = serde_json::to_string(&rows).unwrap();
+        assert!(
+            !json.contains("secreto") && !json.contains("notepad") && !json.contains("outro texto")
+        );
+        assert_eq!(db.history().metrics(1).unwrap().len(), 1);
     }
 
     #[test]
