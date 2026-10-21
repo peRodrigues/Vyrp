@@ -1,0 +1,13 @@
+# Flags do ggml/whisper.cpp, repassadas pelo build do whisper-rs-sys ao CMake.
+[env]
+# O crate `cmake` troca os CMAKE_*_FLAGS_RELEASE pelos flags do `cc`, que no MSVC não
+# têm /O2: o whisper.cpp saía SEM otimização (~10x mais lento). Repomos aqui.
+CMAKE_C_FLAGS_RELEASE = "-nologo -MD -O2 -Ob2 -DNDEBUG"
+CMAKE_CXX_FLAGS_RELEASE = "/utf-8 -nologo -MD -O2 -Ob2 -DNDEBUG"
+# Com MSVC, GGML_NATIVE=ON não detecta a CPU e compila sem SIMD. Base portátil x86-64:
+# AVX2 + FMA + F16C (CPUs de 2013 em diante), sem AVX-512.
+GGML_NATIVE = "OFF"
+GGML_AVX = "ON"
+GGML_AVX2 = "ON"
+GGML_FMA = "ON"
+GGML_F16C = "ON"

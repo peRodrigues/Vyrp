@@ -12,6 +12,10 @@ concurrency:
 jobs:
   check:
     runs-on: windows-latest
+    env:
+      # whisper-rs-sys gera bindings com bindgen (libclang) e compila o whisper.cpp
+      # com CMake; o windows-latest já traz LLVM e CMake. Build sem GPU (padrão).
+      LIBCLANG_PATH: C:\Program Files\LLVM\bin
     steps:
       - uses: actions/checkout@v4
 
@@ -27,6 +31,12 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+
+      - name: Conferir LLVM e CMake
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "$env:LIBCLANG_PATH\libclang.dll")) { throw "libclang.dll não encontrado em $env:LIBCLANG_PATH" }
+          cmake --version
 
       - name: Instalar dependências
         run: npm ci

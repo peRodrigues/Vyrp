@@ -54,7 +54,8 @@ fn init_logging(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
         tracing_appender::non_blocking(tracing_appender::rolling::daily(&dir, "vyrp.log"));
     tracing_subscriber::fmt()
         .with_env_filter(
-            EnvFilter::try_from_env("VYRP_LOG").unwrap_or_else(|_| EnvFilter::new("info")),
+            EnvFilter::try_from_env("VYRP_LOG")
+                .unwrap_or_else(|_| EnvFilter::new("info,whisper_rs=warn")),
         )
         .with_writer(writer)
         .with_ansi(false)
@@ -214,6 +215,7 @@ fn diag_record(app: &AppHandle) {
                     .unwrap_or_default()
                     .join(format!("diag-{}.wav", std::process::id()));
                 let saved = audio::wav::write(&path, &clip.pcm, clip.sample_rate);
+                transcribe_for_diag(&app, &clip);
                 tracing::info!(
                     ms = clip.duration_ms(),
                     samples = clip.pcm.len(),
@@ -230,6 +232,98 @@ fn diag_record(app: &AppHandle) {
     });
 }
 
+/// Espera o modelo local ficar pronto (até 2 min) e transcreve o clipe no log.
+fn transcribe_for_diag(app: &AppHandle, clip: &core::types::AudioClip) {
+    use stt::whisper::LoadState;
+    let engine = &app.state::<stt::LocalStt>().0;
+    for _ in 0..240 {
+        if engine.status().state != LoadState::Loading {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+    let settings = app.state::<settings::SettingsStore>().get();
+    let opts = core::types::SttOptions {
+        languages: settings.dictation_languages.clone(),
+        vocabulary: Vec::new(),
+    };
+    let status = engine.status();
+    match engine.transcribe_blocking(clip, &opts) {
+        Ok(t) => tracing::info!(
+            model = ?status.model,
+            backend = status.backend,
+            audio_ms = clip.duration_ms(),
+            decode_ms = t.timings.decode_ms,
+            language = ?t.language,
+            text = %t.text,
+            "diag: transcrição"
+        ),
+        Err(err) => tracing::error!(error = %err, "diag: transcrição falhou"),
+    }
+}
+
+/// `--diag-model <id>`: baixa (com verificação SHA-256) e ativa um modelo pelo mesmo
+/// caminho do command `model_download`, com o progresso no log.
+fn diag_model(app: &AppHandle) {
+    let mut args = std::env::args().skip_while(|a| a != "--diag-model");
+    if args.next().is_none() {
+        return;
+    }
+    let Some(id) = args.next() else { return };
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let started = std::time::Instant::now();
+        let last = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let seen = last.clone();
+        let progress = app.listen(stt::EVENT_MODEL_PROGRESS, move |event| {
+            if let Ok(p) = serde_json::from_str::<serde_json::Value>(event.payload()) {
+                let pct = p["downloaded"].as_u64().unwrap_or(0) * 100
+                    / p["total"].as_u64().unwrap_or(1).max(1);
+                if pct >= seen.load(std::sync::atomic::Ordering::Relaxed) + 10 {
+                    seen.store(pct, std::sync::atomic::Ordering::Relaxed);
+                    tracing::info!(pct, "diag: download do modelo");
+                }
+            }
+        });
+        let selected = {
+            let store = app.state::<settings::SettingsStore>();
+            let mut next = store.get();
+            next.stt_model = id.clone();
+            store.set(next)
+        };
+        if let Err(err) = selected {
+            tracing::error!(%err, "diag: modelo inválido");
+            return;
+        }
+        let result = stt::model_download(app.clone(), id.clone()).await;
+        app.unlisten(progress);
+        let _ = last;
+        tracing::info!(model = %id, ok = result.is_ok(), secs = started.elapsed().as_secs(), "diag: modelo");
+    });
+}
+
+/// `--diag-transcribe <arquivo.wav>`: transcreve um WAV (PCM 16-bit) e registra no log.
+fn diag_transcribe(app: &AppHandle) {
+    let mut args = std::env::args().skip_while(|a| a != "--diag-transcribe");
+    if args.next().is_none() {
+        return;
+    }
+    let Some(path) = args.next() else { return };
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let pcm = std::fs::read(&path)
+            .map_err(|e| e.to_string())
+            .and_then(|bytes| audio::wav::decode_to_16k_mono(&bytes));
+        match pcm {
+            Ok(pcm) => {
+                tracing::info!(%path, "diag: transcrevendo arquivo");
+                transcribe_for_diag(&app, &core::types::AudioClip::new(pcm));
+            }
+            Err(err) => tracing::error!(%path, error = %err, "diag: WAV inválido"),
+        }
+    });
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -239,6 +333,10 @@ pub fn run() {
         }))
         .invoke_handler(tauri::generate_handler![
             app_info,
+            stt::model_list,
+            stt::model_download,
+            stt::model_status,
+            stt::model_select,
             settings::get_settings,
             settings::set_settings,
             settings::secrets::set_api_key,
@@ -273,8 +371,13 @@ pub fn run() {
             overlay::init(handle);
             start_hotkeys(handle);
             start_audio(handle);
+            if let Err(err) = stt::init(handle) {
+                tracing::error!(error = %err, "transcrição local indisponível");
+            }
             follow_settings(handle);
             diag_record(handle);
+            diag_model(handle);
+            diag_transcribe(handle);
             Ok(())
         })
         .on_window_event(|window, event| {

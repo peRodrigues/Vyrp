@@ -54,6 +54,8 @@ pub struct Settings {
     pub preroll_ms: u32,
     /// Atalhos (PTT, trava, cancelar, ações) e tempos dos gestos (V6).
     pub gestures: GestureConfig,
+    /// Modelo whisper local ativo (id do catálogo em `stt::catalog`).
+    pub stt_model: String,
     pub cleanup: CleanupLevel,
     pub style: WritingStyle,
     pub insert_method: InsertMethod,
@@ -76,6 +78,7 @@ impl Default for Settings {
             warm_mic: false,
             preroll_ms: 300,
             gestures: GestureConfig::default(),
+            stt_model: "small-q5_1".into(),
             cleanup: CleanupLevel::default(),
             style: WritingStyle::default(),
             insert_method: InsertMethod::default(),
@@ -94,6 +97,12 @@ impl Settings {
             return Err(problems.join("; "));
         }
         self.gestures.clamp_timings();
+        if crate::stt::catalog::find(&self.stt_model).is_none() {
+            return Err(format!(
+                "modelo de transcrição desconhecido: {}",
+                self.stt_model
+            ));
+        }
         self.version = CURRENT_VERSION;
         self.preroll_ms = self.preroll_ms.clamp(0, 2_000);
         self.dictation_languages.dedup();

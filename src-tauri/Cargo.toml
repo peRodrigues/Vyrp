@@ -30,7 +30,10 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 uuid = { version = "1", features = ["v4"] }
 keyring = { version = "3", features = ["windows-native"] }
 cpal = "0.18.2"
-whisper-rs = "0.16.0"
+whisper-rs = { version = "0.16.0", features = ["tracing_backend"] }
+sha2 = "0.11.0"
+futures-util = "0.3.34"
+reqwest = { version = "0.13.5", default-features = false, features = ["stream", "rustls"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.60", features = [
@@ -41,6 +44,12 @@ windows-sys = { version = "0.60", features = [
   "Win32_UI_Input_KeyboardAndMouse",
   "Win32_UI_WindowsAndMessaging",
 ] }
+
+[features]
+# GPU para o whisper. Padrão = CPU (o CI compila assim). Release com GPU:
+# `npm run tauri build -- --features gpu-vulkan` (exige o Vulkan SDK no build).
+gpu-vulkan = ["whisper-rs/vulkan"]
+gpu-cuda = ["whisper-rs/cuda"]
 
 [lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
