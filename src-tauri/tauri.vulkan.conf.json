@@ -1,0 +1,12 @@
+{
+  "bundle": {
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/peRodrigues/Vyrp/releases/latest/download/latest-vulkan.json"
+      ]
+    }
+  }
+}

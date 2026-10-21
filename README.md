@@ -87,13 +87,21 @@ npm run tauri build      # src-tauri\target\release\bundle\nsis\Vyrp_<versão>_x
   `peRodrigues/Vyrp` 1 min depois de abrir e a cada 6 h. Instalar é sempre um clique no
   tray ("Instalar atualização x.y.z"). O pacote é verificado pela chave pública do
   `tauri.conf.json` (`plugins.updater.pubkey`).
+  - O instalador grava no exe o tipo de instalação (NSIS ou MSI), e o updater procura
+    primeiro a chave `windows-x86_64-nsis` (ou `-msi`) do `latest.json` e só depois a
+    genérica `windows-x86_64`. Assim cada instalação se atualiza pelo mesmo tipo de
+    instalador. A genérica aponta para o NSIS (`updaterJsonPreferNsis`), o recomendado.
+  - A variante GPU (Vulkan) consulta o próprio `latest-vulkan.json`
+    (`src-tauri/tauri.vulkan.conf.json`): nunca se "atualiza" para o build CPU.
 
 ### Publicar uma versão
 
 1. Suba a versão em `src-tauri/tauri.conf.json` (e `package.json`/`Cargo.toml`).
 2. `git tag v0.2.0 && git push origin v0.2.0`: o workflow `Release` builda o instalador
    (CPU), assina os artefatos do updater e publica o Release com o `latest.json`.
-   A variante com GPU (Vulkan) roda só pelo "Run workflow" manual, marcando `vulkan`.
+   Na mesma tag, o job Vulkan anexa ao Release `Vyrp_x.y.z_x64-vulkan-setup.exe` e o
+   `latest-vulkan.json` (fora do `latest.json`). O "Run workflow" manual com `vulkan`
+   marcado, sem tag, só gera o artifact.
 
 **Chave do updater (uma vez):** o par foi gerado com `npx tauri signer generate`. A
 chave PRIVADA nunca entra no repositório. Cadastre em *Settings → Secrets and variables →
