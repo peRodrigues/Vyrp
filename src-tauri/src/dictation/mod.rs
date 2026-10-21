@@ -362,6 +362,7 @@ impl Orchestrator {
 
     fn begin_session(self: &Arc<Self>, locked: bool, test: bool) {
         let generation = self.next_generation();
+        crate::learn::new_dictation();
         let slot = Arc::new(Mutex::new(None));
         let (source, fill) = (Arc::clone(&self.context), Arc::clone(&slot));
         std::thread::spawn(move || *fill.lock().unwrap() = Some(source.capture()));
@@ -618,6 +619,14 @@ impl Orchestrator {
             && let Err(err) = db.history().record(entry, settings.history_retention)
         {
             tracing::error!(error = %err, "ditado: histórico não gravado");
+        }
+        // V24: colagem confirmada por UIA → observa o campo por alguns segundos.
+        let pasted = report.entry.as_ref().and_then(|e| e.inserted_text.clone());
+        match (&report.outcome, pasted) {
+            (Some(outcome), Some(text)) if outcome.ok && outcome.verified == Some(true) => {
+                crate::learn::start(self.app.clone(), text, settings.dictionary_learning)
+            }
+            _ => crate::learn::forget(),
         }
         self.finish_state(report.state, generation);
     }

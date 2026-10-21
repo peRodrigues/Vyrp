@@ -27,8 +27,9 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, SendInput,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DispatchMessageW, GetForegroundWindow, GetWindowThreadProcessId, HWND_MESSAGE,
-    IsWindow, MSG, PM_REMOVE, PeekMessageW, SetForegroundWindow, TranslateMessage,
+    CreateWindowExW, DispatchMessageW, GetClassNameW, GetForegroundWindow,
+    GetWindowThreadProcessId, HWND_MESSAGE, IsWindow, MSG, PM_REMOVE, PeekMessageW,
+    SetForegroundWindow, TranslateMessage,
 };
 
 const BUDGET: Duration = Duration::from_millis(1500);
@@ -366,8 +367,16 @@ fn wait_modifiers(deadline: Instant) -> bool {
     true
 }
 
+fn window_class(hwnd: isize) -> String {
+    let mut class = [0u16; 128];
+    // SAFETY: buffer válido; hwnd inválido só devolve 0.
+    let len = unsafe { GetClassNameW(hwnd as HWND, class.as_mut_ptr(), class.len() as i32) };
+    String::from_utf16_lossy(&class[..len.max(0) as usize])
+}
+
 fn insert(owner: HWND, state: &mut State, req: &InsertRequest, job: &Job) -> InsertOutcome {
     state.undo = None;
+    crate::learn::forget();
     if req.text.is_empty() {
         return fail(req.method, "texto vazio");
     }
@@ -402,8 +411,9 @@ fn insert(owner: HWND, state: &mut State, req: &InsertRequest, job: &Job) -> Ins
         return fail(req.method, "foco mudou durante captura");
     }
     let exe = context::win::window_exe(target.hwnd);
+    let class = window_class(target.hwnd);
     let mut method = match req.method {
-        InsertMethod::Auto if super::terminal(&exe) => InsertMethod::ShiftInsert,
+        InsertMethod::Auto if super::is_terminal(&class, &exe) => InsertMethod::ShiftInsert,
         InsertMethod::Auto => InsertMethod::Paste,
         m => m,
     };
@@ -448,6 +458,17 @@ fn insert(owner: HWND, state: &mut State, req: &InsertRequest, job: &Job) -> Ins
             return fail(method, format!("texto enviado; Enter abortado: {e}"));
         }
     } else if verified == Some(true) {
+        // Âncoras para o auto-aprendizado (V24): o que havia antes e depois da colagem.
+        // Terminal fica de fora: a saída do console mudaria o "campo" sozinha.
+        if method != InsertMethod::ShiftInsert {
+            crate::learn::remember_paste(
+                after.hwnd,
+                after.focus_id.clone(),
+                &before.context.before,
+                &after.context.after,
+                &req.text,
+            );
+        }
         state.undo = Some(after);
     }
     InsertOutcome {

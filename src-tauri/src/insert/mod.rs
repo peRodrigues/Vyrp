@@ -134,20 +134,19 @@ fn html_fragment(fragment: &str) -> String {
     )
 }
 
-fn terminal(exe: &str) -> bool {
-    [
-        "windowsterminal.exe",
-        "cmd.exe",
-        "powershell.exe",
-        "pwsh.exe",
-        "conemu64.exe",
-        "conemu.exe",
-        "mintty.exe",
-        "wezterm-gui.exe",
-        "alacritty.exe",
-    ]
-    .iter()
-    .any(|e| exe.eq_ignore_ascii_case(e))
+/// Terminal (cola com Shift+Insert) pela classe da janela em primeiro plano: console
+/// clássico, Windows Terminal (também quando hospeda cmd/PowerShell), ConEmu e mintty.
+/// O exe só decide para terminais de classe genérica (WezTerm, Alacritty).
+fn is_terminal(class: &str, exe: &str) -> bool {
+    const CLASSES: [&str; 4] = [
+        "ConsoleWindowClass",
+        "CASCADIA_HOSTING_WINDOW_CLASS",
+        "VirtualConsoleClass",
+        "mintty",
+    ];
+    const EXES: [&str; 2] = ["wezterm-gui.exe", "alacritty.exe"];
+    CLASSES.iter().any(|c| class.eq_ignore_ascii_case(c))
+        || EXES.iter().any(|e| exe.eq_ignore_ascii_case(e))
 }
 
 fn verified(
@@ -222,8 +221,22 @@ mod tests {
         assert_eq!(verified(&before, &after, "new 🦀"), None);
     }
     #[test]
-    fn terminal_names_are_exact() {
-        assert!(terminal("WindowsTerminal.exe"));
-        assert!(!terminal("not-windowsterminal.exe"));
+    fn terminal_is_detected_by_window_class() {
+        assert!(is_terminal(
+            "CASCADIA_HOSTING_WINDOW_CLASS",
+            "WindowsTerminal.exe"
+        ));
+        assert!(is_terminal("ConsoleWindowClass", "conhost.exe"));
+        assert!(is_terminal("VirtualConsoleClass", "ConEmu64.exe"));
+        assert!(is_terminal("Window Class", "wezterm-gui.exe"));
+        // O exe sozinho não basta: o PowerShell pode ser dono de um formulário WinForms.
+        assert!(!is_terminal(
+            "WindowsForms10.Window.8.app.0.1",
+            "powershell.exe"
+        ));
+        assert!(!is_terminal(
+            "Chrome_WidgetWin_1",
+            "not-windowsterminal.exe"
+        ));
     }
 }

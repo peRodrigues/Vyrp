@@ -8,6 +8,7 @@ pub mod factory;
 pub mod hotkey;
 pub mod hub;
 pub mod insert;
+pub mod learn;
 pub mod llm;
 pub mod metrics;
 pub mod overlay;
@@ -552,6 +553,10 @@ pub fn run() {
             hub::export_log,
             hub::open_log_dir,
             overlay::overlay_demo,
+            learn::learn_suggestions,
+            learn::learn_accept,
+            learn::learn_dismiss,
+            learn::learn_undo,
         ])
         .setup(|app| {
             let handle = app.handle();
@@ -564,6 +569,7 @@ pub fn run() {
                 tracing::error!(error = %err, "banco de dados indisponível");
             }
             post::init(handle);
+            learn::init(handle);
             build_tray(handle)?;
             place_overlay(handle)?;
             overlay::init(handle);

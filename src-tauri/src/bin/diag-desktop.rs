@@ -1,6 +1,8 @@
 //! Manual integration diagnostic. Never inject into a pre-existing window.
 //! Run only with the app test slot released by the Maestro:
-//! diag-desktop notepad|textbox|chrome|edge|edge-password|terminal context|paste|type|guard|copy --ack-test-slot
+//! diag-desktop notepad|textbox|chrome|edge|edge-password|terminal context|paste|type|guard|copy|learn --ack-test-slot
+//! `learn` (só textbox): cola, o próprio formulário troca "vai arpe" por "Vyrp" (arquivo de
+//! controle, nenhuma tecla a mais) e o auto-aprendizado tem de achar a correção.
 //! Leaves its own window open for screenshots; prints its HWND and temp directory.
 
 #[cfg(not(windows))]
@@ -104,7 +106,7 @@ mod windows_diag {
             "textbox" => {
                 let path = dir.join("textbox-test.ps1");
                 let script = format!(
-                    "Add-Type -AssemblyName System.Windows.Forms\nAdd-Type -AssemblyName System.Drawing\n$form = New-Object Windows.Forms.Form\n$form.Text = '{marker}'\n$form.Size = New-Object Drawing.Size(1000,450)\n$box = New-Object Windows.Forms.TextBox\n$box.Multiline = $true\n$box.Dock = 'Fill'\n$box.Font = New-Object Drawing.Font('Segoe UI',22)\n$box.Text = 'Antes do cursor. Texto de teste Vyrp.'\n$form.Controls.Add($box)\n$form.Add_Shown({{ $box.Focus(); $box.Select(6,9) }})\n[void]$form.ShowDialog()\n"
+                    "Add-Type -AssemblyName System.Windows.Forms\nAdd-Type -AssemblyName System.Drawing\n$form = New-Object Windows.Forms.Form\n$form.Text = '{marker}'\n$form.Size = New-Object Drawing.Size(1000,450)\n$box = New-Object Windows.Forms.TextBox\n$box.Multiline = $true\n$box.Dock = 'Fill'\n$box.Font = New-Object Drawing.Font('Segoe UI',22)\n$box.Text = 'Antes do cursor. Texto de teste Vyrp.'\n$form.Controls.Add($box)\n$form.Add_Shown({{ $box.Focus(); $box.Select(6,9) }})\n$fix = Join-Path $PSScriptRoot 'fix.txt'\n$timer = New-Object Windows.Forms.Timer\n$timer.Interval = 200\n$timer.Add_Tick({{ if (Test-Path $fix) {{ $p = (Get-Content $fix -Raw -Encoding UTF8).Trim() -split '\\|'; Remove-Item $fix; $at = $box.Text.IndexOf($p[0]); if ($at -ge 0) {{ $box.Text = $box.Text.Remove($at, $p[0].Length).Insert($at, $p[1]); $box.Select($at + $p[1].Length, 0) }} }} }})\n$timer.Start()\n[void]$form.ShowDialog()\n"
                 );
                 std::fs::write(&path, script).map_err(|e| e.to_string())?;
                 Command::new("powershell.exe")
@@ -220,9 +222,10 @@ mod windows_diag {
         let args: Vec<String> = std::env::args().collect();
         if args.len() != 4
             || args[3] != "--ack-test-slot"
-            || !["context", "paste", "type", "guard", "copy"].contains(&args[2].as_str())
+            || !["context", "paste", "type", "guard", "copy", "learn"].contains(&args[2].as_str())
+            || (args[2] == "learn" && args[1] != "textbox")
         {
-            return Err("uso: diag-desktop notepad|textbox|chrome|edge|edge-password|terminal context|paste|type|guard|copy --ack-test-slot (somente após liberação do slot)".into());
+            return Err("uso: diag-desktop notepad|textbox|chrome|edge|edge-password|terminal context|paste|type|guard|copy|learn --ack-test-slot (somente após liberação do slot)".into());
         }
         let marker = format!("VYRP-TEST-{}", uuid::Uuid::new_v4());
         let dir = std::env::temp_dir().join(&marker);
@@ -272,10 +275,16 @@ mod windows_diag {
                 title_contains: target_title,
             });
             let req = InsertRequest {
-                text: "Vyrp teste seguro — ação 🦀".into(),
+                text: if args[2] == "learn" {
+                    "o vai arpe funciona bem".into()
+                } else {
+                    "Vyrp teste seguro — ação 🦀".into()
+                },
+                // `learn` usa Auto: o formulário é do powershell.exe e tem de colar com
+                // Ctrl+V (terminal agora é pela classe da janela, não pelo exe).
                 method: if args[2] == "type" {
                     InsertMethod::Type
-                } else if args[1] == "textbox" {
+                } else if args[1] == "textbox" && args[2] != "learn" {
                     InsertMethod::Paste
                 } else {
                     InsertMethod::Auto
@@ -291,6 +300,23 @@ mod windows_diag {
             };
             if args[2] == "guard" && outcome.ok {
                 return Err("FALHA DE SEGURANÇA: título incorreto aceito".into());
+            }
+            if args[2] == "learn" {
+                if !outcome.ok {
+                    return Err(format!("colagem falhou: {:?}", outcome.reason));
+                }
+                // Correção feita pelo formulário (sem teclas), como o usuário faria.
+                std::thread::sleep(Duration::from_millis(1500));
+                std::fs::write(dir.join("fix.txt"), "vai arpe|Vyrp").map_err(|e| e.to_string())?;
+                let found = vyrp_lib::learn::diag_watch(&req.text, Duration::from_secs(6));
+                let found = match &found {
+                    Ok(list) => list
+                        .iter()
+                        .map(|l| serde_json::json!({ "phrase": l.phrase, "observed": l.observed }))
+                        .collect::<Vec<_>>(),
+                    Err(why) => vec![serde_json::json!({ "abandoned": why })],
+                };
+                println!("LEARN {}", serde_json::json!(found));
             }
             Some(outcome)
         };

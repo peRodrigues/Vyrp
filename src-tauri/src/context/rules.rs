@@ -111,14 +111,22 @@ impl ContextRules {
     }
 }
 
+/// Lê o JSON das regras; aceita BOM UTF-8 (Bloco de Notas/PowerShell gravam com ele).
+fn parse(bytes: &[u8]) -> Option<ContextRules> {
+    let bytes = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(bytes);
+    serde_json::from_slice::<ContextRules>(bytes)
+        .ok()
+        .filter(|rules| rules.validate().is_ok())
+}
+
 pub fn init(app: &tauri::AppHandle) {
     let Ok(dir) = app.path().app_data_dir() else {
         return;
     };
     let path = dir.join("context-rules.json");
     match std::fs::read(&path) {
-        Ok(bytes) => match serde_json::from_slice::<ContextRules>(&bytes) {
-            Ok(rules) if rules.validate().is_ok() => {
+        Ok(bytes) => match parse(&bytes) {
+            Some(rules) => {
                 if let Ok(mut state) = current().write() {
                     *state = rules;
                 }
@@ -151,6 +159,15 @@ pub fn save(app: &tauri::AppHandle, rules: ContextRules) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn rules_file_with_utf8_bom_is_accepted() {
+        let json = serde_json::to_vec(&ContextRules::default()).unwrap();
+        let mut with_bom = vec![0xEF, 0xBB, 0xBF];
+        with_bom.extend_from_slice(&json);
+        let parsed = parse(&with_bom).expect("BOM aceito");
+        assert_eq!(serde_json::to_vec(&parsed).unwrap(), json);
+        assert!(parse(&[0xEF, 0xBB, 0xBF, b'{']).is_none());
+    }
     #[test]
     fn categories_match_host_boundaries_and_order() {
         let rules = ContextRules::default();
