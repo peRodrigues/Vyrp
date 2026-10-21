@@ -141,8 +141,8 @@ export const en: Record<keyof typeof ptBR, string> = {
   "overlay.hideForeverTitle": "Hide the bar (bring it back in General › Dictation bar)",
 
   "general.overlay.title": "Dictation bar",
-  "general.overlay.show": "Show the dictation bar on screen",
-  "general.overlay.hint": "Drag the bar to move it. Hidden for 1 hour, it comes back on its own.",
+  "general.overlay.show": "Show the dictation bar while idle",
+  "general.overlay.hint": "Drag the bar to move it. When hidden, it only disappears while idle: it always shows during dictation. Hidden for 1 hour, it comes back on its own.",
 
   "general.sounds": "Play sounds when dictation starts and ends",
 

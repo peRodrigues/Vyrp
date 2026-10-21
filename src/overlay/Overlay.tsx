@@ -13,8 +13,8 @@ import {
   OVERLAY_PREF_KEY,
   hideFor,
   hideForever,
-  isHidden,
   msUntilVisible,
+  overlayVisible,
   readPref,
   writePref,
   type HiddenPref,
@@ -28,8 +28,13 @@ const BAR_MAX_PX = 22;
 /** setTimeout aceita no máximo ~24,8 dias. */
 const MAX_TIMER_MS = 2_147_483_647;
 
-/** Preferência de ocultar; muda quando o hub escreve no localStorage ou o prazo vence. */
-function useHiddenPref(): (pref: HiddenPref) => void {
+/**
+ * Preferência de ocultar; muda quando o hub escreve no localStorage ou o prazo vence.
+ * Oculta só em repouso: durante o ditado (ou transform) a barra aparece. A janela nunca é
+ * escondida/mostrada pela API (o `show` do Windows pode ativá-la e roubar o foco do campo
+ * onde o texto vai ser colado): oculta = transparente e sem receber o mouse.
+ */
+function useHiddenPref(state: string): [boolean, (pref: HiddenPref) => void] {
   const [pref, setPref] = useState<HiddenPref>(readPref);
   const [now, setNow] = useState(() => Date.now());
 
@@ -52,17 +57,19 @@ function useHiddenPref(): (pref: HiddenPref) => void {
     return () => window.clearTimeout(timer);
   }, [pref, now]);
 
-  const hidden = isHidden(pref, now);
+  const visible = overlayVisible(pref, now, state);
   useEffect(() => {
-    const win = getCurrentWindow();
-    void (hidden ? win.hide() : win.show());
-  }, [hidden]);
+    void getCurrentWindow()
+      .setIgnoreCursorEvents(!visible)
+      .catch(() => undefined);
+  }, [visible]);
 
-  return (next: HiddenPref) => {
+  const update = (next: HiddenPref) => {
     writePref(next);
     setPref(next);
     setNow(Date.now());
   };
+  return [visible, update];
 }
 
 /** Texto dentro da pílula (a janela é estreita: travado usa a forma curta). */
@@ -110,7 +117,7 @@ export default function Overlay() {
   const [state, setState] = useState<DictationState>({ state: "idle" });
   const [levels, setLevels] = useState<number[]>(() => silence());
   const [hover, setHover] = useState(false);
-  const setHiddenPref = useHiddenPref();
+  const [visible, setHiddenPref] = useHiddenPref(state.state);
   const language = useUiLanguage();
 
   useEffect(() => {
@@ -129,7 +136,12 @@ export default function Overlay() {
 
   const listening = state.state === "listening";
   const showHide = hover && state.state === "idle";
-  const classes = ["pill", `pill--${state.state}`, listening && state.locked ? "pill--locked" : ""]
+  const classes = [
+    "pill",
+    `pill--${state.state}`,
+    listening && state.locked ? "pill--locked" : "",
+    visible ? "" : "pill--concealed",
+  ]
     .filter(Boolean)
     .join(" ");
 

@@ -154,3 +154,9 @@ body.overlay {
     transition: none;
   }
 }
+
+/* "Ocultar a barra" em repouso: some sem esconder a janela (ver Overlay.tsx). */
+.pill--concealed {
+  opacity: 0;
+  pointer-events: none;
+}

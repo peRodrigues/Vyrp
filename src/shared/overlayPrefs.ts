@@ -31,6 +31,14 @@ export function isHidden(pref: HiddenPref, now: number): boolean {
   return pref.mode === "forever" || pref.until > now;
 }
 
+/**
+ * A barra aparece agora? "Ocultar" vale só em repouso: em qualquer estado ativo (ouvindo,
+ * processando, colando, pronto, erro, transform) ela aparece e volta a sumir no idle.
+ */
+export function overlayVisible(pref: HiddenPref, now: number, state: string): boolean {
+  return state !== "idle" || !isHidden(pref, now);
+}
+
 export const hideForever = (): HiddenPref => ({ mode: "forever" });
 export const hideFor = (ms: number, now: number): HiddenPref => ({ mode: "until", until: now + ms });
 

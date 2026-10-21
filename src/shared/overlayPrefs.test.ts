@@ -5,6 +5,7 @@ import {
   hideForever,
   isHidden,
   msUntilVisible,
+  overlayVisible,
   parsePref,
   serializePref,
 } from "./overlayPrefs";
@@ -41,5 +42,18 @@ describe("isHidden / msUntilVisible", () => {
   it("sem preferência: visível", () => {
     expect(isHidden(null, 0)).toBe(false);
     expect(msUntilVisible(null, 0)).toBeNull();
+  });
+});
+
+describe("overlayVisible", () => {
+  it("oculta só some em repouso; estados ativos sempre aparecem", () => {
+    for (const pref of [hideForever(), hideFor(HIDE_ONE_HOUR_MS, 0)]) {
+      expect(overlayVisible(pref, 10, "idle")).toBe(false);
+      for (const state of ["arming", "listening", "processing", "inserting", "done", "error"]) {
+        expect(overlayVisible(pref, 10, state)).toBe(true);
+      }
+    }
+    expect(overlayVisible(null, 10, "idle")).toBe(true);
+    expect(overlayVisible(hideFor(5, 0), 10, "idle")).toBe(true);
   });
 });

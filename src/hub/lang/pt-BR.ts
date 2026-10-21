@@ -139,8 +139,8 @@ export const ptBR = {
   "overlay.hideForeverTitle": "Ocultar a barra (volta em Geral › Barra de ditado)",
 
   "general.overlay.title": "Barra de ditado",
-  "general.overlay.show": "Mostrar a barra de ditado na tela",
-  "general.overlay.hint": "Arraste a barra para mudar de lugar. Ocultada por 1 hora, ela volta sozinha.",
+  "general.overlay.show": "Mostrar a barra de ditado em repouso",
+  "general.overlay.hint": "Arraste a barra para mudar de lugar. Oculta, ela some só em repouso: durante o ditado sempre aparece. Ocultada por 1 hora, volta sozinha.",
 
   "general.sounds": "Tocar sons ao começar e terminar o ditado",
 
