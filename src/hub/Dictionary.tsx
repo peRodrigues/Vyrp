@@ -8,6 +8,8 @@ import {
   kindLabel,
 } from "./dictionaryApi";
 import { t } from "./i18n";
+import { isLearned } from "./learnApi";
+import Learning from "./Learning";
 import { errorText } from "./useSettings";
 import type { DictionaryDraft, DictionaryEntry } from "./dictionaryApi";
 
@@ -98,6 +100,7 @@ export default function Dictionary() {
 
   return (
     <section className="dictionary" aria-label={t("dict.aria")}>
+      <Learning onChanged={refresh} />
       <div className="toolbar">
         <input
           type="search"
@@ -212,6 +215,11 @@ export default function Dictionary() {
                 <strong>{entry.phrase}</strong>
                 {entry.replacement && <span className="arrow"> → {entry.replacement}</span>}
               </div>
+              {isLearned(entry) && (
+                <span className="badge learned" title={entry.observed_asr_error ? t("learn.heardAs", { observed: entry.observed_asr_error }) : undefined}>
+                  {t("dict.learned")}
+                </span>
+              )}
               <span className={entry.is_snippet ? "badge snippet" : "badge"}>{kindLabel(entry)}</span>
               {confirmingId === entry.id ? (
                 <span className="confirm">

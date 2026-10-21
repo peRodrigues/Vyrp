@@ -1,6 +1,7 @@
 // Espelho TS de src-tauri/src/settings/** e hub.rs, e as chamadas aos commands.
 
 import { invoke } from "@tauri-apps/api/core";
+import type { LearnMode } from "./learnApi";
 import type { Privacy } from "./privacyRules";
 import type {
   CleanupLevel,
@@ -61,6 +62,8 @@ export interface Settings {
   style: WritingStyle;
   voice_commands: VoiceCommand[];
   sounds: boolean;
+  /** Auto-aprendizado do dicionário (V24). */
+  dictionary_learning: LearnMode;
   [extra: string]: unknown;
 }
 

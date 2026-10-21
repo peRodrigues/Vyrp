@@ -151,7 +151,7 @@ const rustSources = import.meta.glob("../../src-tauri/src/**/*.rs", {
 }) as Record<string, string>;
 
 /** Os prefixos dos códigos estáveis de `UiError` (src-tauri/src/core/ui_error.rs). */
-const CODE = /"((?:provider|stt|llm|test|settings|shortcut|key|dictionary|log|model)\.(?!json")[a-z_]+)"/g;
+const CODE = /"((?:provider|stt|llm|test|settings|shortcut|key|dictionary|log|model|learn)\.(?!json")[a-z_]+)"/g;
 
 function rustCodes(): Set<string> {
   const codes = new Set<string>();

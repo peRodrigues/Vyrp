@@ -386,4 +386,23 @@ export const en: Record<keyof typeof ptBR, string> = {
   "modelname.small": "Small (488 MB)",
   "modelname.large-v3-turbo-q5_0": "Large v3 Turbo quantized (574 MB): best quality with a GPU",
   "modelname.large-v3-turbo": "Large v3 Turbo (1.6 GB)",
+
+  // V24-UI: auto-aprendizado do dicionário
+  "common.close": "Close",
+  "learn.title": "Learn from your corrections",
+  "learn.lead": "After pasting, Vyrp watches the field for a few seconds. If you fix a word, it can be added to your dictionary.",
+  "learn.mode.label": "Mode",
+  "learn.mode.off": "Off",
+  "learn.mode.suggest": "Suggest (you accept)",
+  "learn.mode.auto": "Automatic (with undo)",
+  "learn.suggestions.title": "Suggestions",
+  "learn.suggestions.empty": "No suggestions right now.",
+  "learn.heardAs": "(heard as {observed})",
+  "learn.accept": "Add",
+  "learn.dismiss": "Dismiss",
+  "learn.auto.notice": "Learned: {phrase} (heard as {observed})",
+  "learn.undo": "Undo",
+  "dict.learned": "Learned",
+  "uierr.learn.not_found": "This suggestion no longer exists.",
+  "uierr.learn.not_learned": "Only learned terms can be undone here.",
 };

@@ -241,6 +241,16 @@ input[type="search"],
   border-color: var(--accent);
 }
 
+.badge.learned {
+  color: var(--accent);
+  border-style: dashed;
+}
+
+.learning h3 {
+  margin: 16px 0 8px;
+  font-size: 0.95rem;
+}
+
 .row-actions,
 .confirm {
   display: flex;

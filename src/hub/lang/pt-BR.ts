@@ -384,4 +384,23 @@ export const ptBR = {
   "modelname.small": "Small (488 MB)",
   "modelname.large-v3-turbo-q5_0": "Large v3 Turbo quantizado (574 MB): melhor qualidade com GPU",
   "modelname.large-v3-turbo": "Large v3 Turbo (1,6 GB)",
+
+  // V24-UI: auto-aprendizado do dicionário
+  "common.close": "Fechar",
+  "learn.title": "Aprender com as suas correções",
+  "learn.lead": "Depois de colar, o Vyrp observa o campo por alguns segundos. Se você corrigir uma palavra, ela pode entrar no dicionário.",
+  "learn.mode.label": "Modo",
+  "learn.mode.off": "Desligado",
+  "learn.mode.suggest": "Sugerir (você aceita)",
+  "learn.mode.auto": "Automático (com desfazer)",
+  "learn.suggestions.title": "Sugestões",
+  "learn.suggestions.empty": "Nenhuma sugestão agora.",
+  "learn.heardAs": "(ouvido como {observed})",
+  "learn.accept": "Adicionar",
+  "learn.dismiss": "Dispensar",
+  "learn.auto.notice": "Aprendido: {phrase} (ouvido como {observed})",
+  "learn.undo": "Desfazer",
+  "dict.learned": "Aprendido",
+  "uierr.learn.not_found": "Essa sugestão não existe mais.",
+  "uierr.learn.not_learned": "Só termos aprendidos podem ser desfeitos aqui.",
 } as const;
