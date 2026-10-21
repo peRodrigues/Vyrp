@@ -13,6 +13,7 @@ import {
 } from "./modelsApi";
 import { applyProgress, withoutKey, type ProgressMap } from "./onboardingState";
 import { SETTINGS_CHANGED } from "./settingsApi";
+import { withTimeout } from "./timeout";
 import { rawError, toUiError, type UiError } from "./uiError";
 
 export interface ModelsState {
@@ -20,6 +21,9 @@ export interface ModelsState {
   progress: ProgressMap;
   errors: Record<string, UiError>;
   status: SttStatus | null;
+  /** A lista não veio (erro ou prazo esgotado): a tela mostra o erro e "Tentar de novo". */
+  listFailed: boolean;
+  retry: () => void;
   download: (id: string) => void;
   select: (id: string) => void;
 }
@@ -30,13 +34,21 @@ export function useModels(): ModelsState {
   const [progress, setProgress] = useState<ProgressMap>({});
   const [errors, setErrors] = useState<Record<string, UiError>>({});
   const [status, setStatus] = useState<SttStatus | null>(null);
+  const [listFailed, setListFailed] = useState(false);
 
   const refresh = useCallback(() => {
-    modelsApi
-      .list()
-      .then(setModels)
-      .catch(() => setModels([]));
+    withTimeout(modelsApi.list())
+      .then((list) => {
+        setModels(list);
+        setListFailed(false);
+      })
+      .catch(() => setListFailed(true));
   }, []);
+
+  const retry = useCallback(() => {
+    setListFailed(false);
+    refresh();
+  }, [refresh]);
 
   useEffect(() => {
     refresh();
@@ -89,5 +101,5 @@ export function useModels(): ModelsState {
     [refresh],
   );
 
-  return { models, progress, errors, status, download, select };
+  return { models, progress, errors, status, listFailed, retry, download, select };
 }

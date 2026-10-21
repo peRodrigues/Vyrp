@@ -11,6 +11,9 @@ export const ptBR = {
   "tab.diagnostics": "Diagnóstico",
 
   "common.loading": "Carregando…",
+  "common.retry": "Tentar de novo",
+  "common.timeout": "o Vyrp não respondeu a tempo",
+  "common.loadError": "Não foi possível carregar: {error}. Tente de novo; se continuar, feche o Vyrp pelo ícone na bandeja e abra de novo.",
   "common.yes": "Sim",
   "common.no": "Não",
   "common.remove": "Remover",
@@ -67,6 +70,7 @@ export const ptBR = {
   "model.progress": "{pct}% · {done} de {total}",
   "model.downloadFailed": "Não foi possível baixar: {error}",
   "model.status.loading": "Carregando o modelo…",
+  "model.listFailed": "Não foi possível listar os modelos.",
   "model.status.ready": "Modelo pronto ({backend}).",
   "model.status.error": "Falha ao carregar o modelo: {error}",
 

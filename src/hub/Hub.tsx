@@ -66,7 +66,7 @@ export default function Hub() {
   const [tab, setTab] = useState<Tab>("home");
   const language = useUiLanguage();
   const settingsState = useSettings();
-  const { settings, update } = settingsState;
+  const { settings, update, error, retry } = settingsState;
 
   // Quem concluiu o onboarding antes desta versão tinha a flag no localStorage: passa uma vez
   // para o Settings.
@@ -85,7 +85,18 @@ export default function Hub() {
   if (settings === null) {
     return (
       <main className="hub">
-        <p className="hint">{t("common.loading")}</p>
+        {error ? (
+          <>
+            <p className="error" role="alert">
+              {error}
+            </p>
+            <button type="button" className="primary" onClick={retry}>
+              {t("common.retry")}
+            </button>
+          </>
+        ) : (
+          <p className="hint">{t("common.loading")}</p>
+        )}
       </main>
     );
   }

@@ -13,6 +13,9 @@ export const en: Record<keyof typeof ptBR, string> = {
   "tab.diagnostics": "Diagnostics",
 
   "common.loading": "Loading…",
+  "common.retry": "Try again",
+  "common.timeout": "Vyrp did not respond in time",
+  "common.loadError": "Could not load: {error}. Try again; if it keeps happening, quit Vyrp from the tray icon and open it again.",
   "common.yes": "Yes",
   "common.no": "No",
   "common.remove": "Remove",
@@ -69,6 +72,7 @@ export const en: Record<keyof typeof ptBR, string> = {
   "model.progress": "{pct}% · {done} of {total}",
   "model.downloadFailed": "Could not download: {error}",
   "model.status.loading": "Loading the model…",
+  "model.listFailed": "Could not list the models.",
   "model.status.ready": "Model ready ({backend}).",
   "model.status.error": "Failed to load the model: {error}",
 

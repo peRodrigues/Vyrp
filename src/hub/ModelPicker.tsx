@@ -14,11 +14,30 @@ function statusLine(status: ModelsState["status"]): string | null {
 }
 
 /** Lista de modelos locais: baixar com progresso, escolher o ativo. Usada no onboarding e em Geral. */
-export default function ModelPicker({ models, progress, errors, status, download, select }: ModelsState) {
+export default function ModelPicker({
+  models,
+  progress,
+  errors,
+  status,
+  listFailed,
+  retry,
+  download,
+  select,
+}: ModelsState) {
   const line = statusLine(status);
   return (
     <div className="model-picker">
-      {models.length === 0 && <p className="hint small">{t("common.loading")}</p>}
+      {models.length === 0 &&
+        (listFailed ? (
+          <p className="error small" role="alert">
+            {t("model.listFailed")}{" "}
+            <button type="button" onClick={retry}>
+              {t("common.retry")}
+            </button>
+          </p>
+        ) : (
+          <p className="hint small">{t("common.loading")}</p>
+        ))}
       <ul className="models">
         {models.map((m) => {
           const downloading = m.downloading || m.id in progress;
