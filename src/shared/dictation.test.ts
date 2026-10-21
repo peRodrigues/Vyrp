@@ -15,6 +15,10 @@ describe("stateLabel", () => {
     expect(stateLabel({ state: "error", code: "insert_failed" })).toBe("Copiado. Cole manualmente.");
   });
 
+  it("ditado bloqueado pela lista de privacidade tem texto próprio", () => {
+    expect(stateLabel({ state: "error", code: "blocked" })).toBe("Bloqueado: app protegido");
+  });
+
   it("tem texto para todos os estados", () => {
     for (const s of ["idle", "arming", "processing", "inserting", "done"] as const) {
       expect(stateLabel({ state: s }).length).toBeGreaterThan(0);

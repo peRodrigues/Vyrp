@@ -2,9 +2,18 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import Advanced from "./Advanced";
 import Dictionary from "./Dictionary";
+import Diagnostics from "./Diagnostics";
 import General from "./General";
 import History from "./History";
+import Onboarding from "./Onboarding";
+import Providers from "./Providers";
+import {
+  clearLegacyOnboarding,
+  readLegacyOnboardingDone,
+  shouldMigrateLegacyFlag,
+} from "./onboardingState";
 import { t } from "./i18n";
+import { useUiLanguage } from "../shared/uiLanguage";
 import { useSettings } from "./useSettings";
 
 interface AppInfo {
@@ -12,17 +21,19 @@ interface AppInfo {
   log_dir: string;
 }
 
-type Tab = "home" | "general" | "history" | "dictionary" | "advanced";
+type Tab = "home" | "general" | "providers" | "history" | "dictionary" | "diagnostics" | "advanced";
 
 const TABS: { id: Tab; label: () => string }[] = [
   { id: "home", label: () => t("tab.home") },
   { id: "general", label: () => t("tab.general") },
+  { id: "providers", label: () => t("tab.providers") },
   { id: "history", label: () => t("tab.history") },
   { id: "dictionary", label: () => t("tab.dictionary") },
+  { id: "diagnostics", label: () => t("tab.diagnostics") },
   { id: "advanced", label: () => t("tab.advanced") },
 ];
 
-function Home() {
+function Home({ onRedoOnboarding }: { onRedoOnboarding: () => void }) {
   const [info, setInfo] = useState<AppInfo | null>(null);
 
   useEffect(() => {
@@ -32,31 +43,60 @@ function Home() {
   return (
     <>
       <section className="card">
-        <h2>Estado</h2>
-        <p>
-          Esqueleto do app (card V2). Atalho, microfone e transcrição chegam nos próximos cards.
-        </p>
+        <h2>{t("home.title")}</h2>
+        <p>{t("home.skeleton")}</p>
         <dl>
-          <dt>Versão</dt>
+          <dt>{t("home.version")}</dt>
           <dd>{info?.version ?? "…"}</dd>
-          <dt>Logs</dt>
+          <dt>{t("home.logs")}</dt>
           <dd className="mono">{info?.log_dir ?? "…"}</dd>
         </dl>
       </section>
-      <p className="hint">Fechar esta janela mantém o Vyrp no tray. Para sair, use o menu do ícone.</p>
+      <button type="button" onClick={onRedoOnboarding}>
+        {t("onb.redo")}
+      </button>
+      <p className="hint">{t("home.hint")}</p>
     </>
   );
 }
 
 export default function Hub() {
   const [tab, setTab] = useState<Tab>("home");
+  const language = useUiLanguage();
   const settingsState = useSettings();
+  const { settings, update } = settingsState;
+
+  // Quem concluiu o onboarding antes desta versão tinha a flag no localStorage: passa uma vez
+  // para o Settings.
+  useEffect(() => {
+    if (settings && shouldMigrateLegacyFlag(settings.onboarding_done, readLegacyOnboardingDone())) {
+      clearLegacyOnboarding();
+      update({ onboarding_done: true });
+    }
+  }, [settings, update]);
+
+  const setOnboardingDone = (done: boolean) => {
+    update({ onboarding_done: done });
+    setTab("home");
+  };
+
+  if (settings === null) {
+    return (
+      <main className="hub">
+        <p className="hint">{t("common.loading")}</p>
+      </main>
+    );
+  }
+
+  if (!settings.onboarding_done) {
+    return <Onboarding settingsState={settingsState} onFinish={() => setOnboardingDone(true)} />;
+  }
 
   return (
-    <main className="hub">
+    <main className="hub" lang={language}>
       <header>
         <h1>Vyrp</h1>
-        <p className="tagline">Segure o atalho, fale, solte: o texto aparece onde está o cursor.</p>
+        <p className="tagline">{t("app.tagline")}</p>
       </header>
       <nav className="tabs" role="tablist">
         {TABS.map(({ id, label }) => (
@@ -72,10 +112,12 @@ export default function Hub() {
           </button>
         ))}
       </nav>
-      {tab === "home" && <Home />}
+      {tab === "home" && <Home onRedoOnboarding={() => setOnboardingDone(false)} />}
       {tab === "general" && <General {...settingsState} />}
+      {tab === "providers" && <Providers {...settingsState} />}
       {tab === "history" && <History retention={settingsState.settings?.history_retention ?? null} />}
       {tab === "dictionary" && <Dictionary />}
+      {tab === "diagnostics" && <Diagnostics />}
       {tab === "advanced" && <Advanced {...settingsState} />}
     </main>
   );

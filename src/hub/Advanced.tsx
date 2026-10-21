@@ -1,22 +1,16 @@
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { describeAction, parsePhrases } from "./format";
+import PrivacySettings from "./PrivacySettings";
 import { t } from "./i18n";
 import type { StringKey } from "./i18n";
 import { settingsApi } from "./settingsApi";
-import type { ApiProvider, HistoryRetention, VoiceCommand } from "./settingsApi";
-import { errorText } from "./useSettings";
+import type { HistoryRetention, VoiceCommand } from "./settingsApi";
 import type { SettingsState } from "./useSettings";
 
 const RETENTION: { value: HistoryRetention; label: StringKey }[] = [
   { value: "keep", label: "advanced.retention.keep" },
   { value: "day", label: "advanced.retention.day" },
   { value: "never", label: "advanced.retention.never" },
-];
-
-const PROVIDERS: { id: ApiProvider; name: string }[] = [
-  { id: "groq", name: "Groq" },
-  { id: "open_ai", name: "OpenAI" },
-  { id: "anthropic", name: "Anthropic" },
 ];
 
 function PhrasesField({ command, onCommit }: { command: VoiceCommand; onCommit: (phrases: string[]) => void }) {
@@ -37,72 +31,6 @@ function PhrasesField({ command, onCommit }: { command: VoiceCommand; onCommit: 
         if (e.key === "Enter") commit();
       }}
     />
-  );
-}
-
-function ApiKeyRow({ provider, name }: { provider: ApiProvider; name: string }) {
-  const [present, setPresent] = useState<boolean | null>(null);
-  const [value, setValue] = useState("");
-  const [error, setError] = useState<string | null>(null);
-
-  const refresh = useCallback(() => {
-    settingsApi
-      .hasKey(provider)
-      .then(setPresent)
-      .catch((err: unknown) => setError(errorText(err)));
-  }, [provider]);
-
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
-
-  const save = () => {
-    settingsApi
-      .setKey(provider, value)
-      .then(() => {
-        // A chave nunca fica na tela nem no estado depois de salva.
-        setValue("");
-        setError(null);
-        refresh();
-      })
-      .catch((err: unknown) => setError(errorText(err)));
-  };
-  const clear = () => {
-    settingsApi
-      .clearKey(provider)
-      .then(() => {
-        setError(null);
-        refresh();
-      })
-      .catch((err: unknown) => setError(errorText(err)));
-  };
-
-  return (
-    <div className="key-row">
-      <strong className="key-name">{name}</strong>
-      <span className={present ? "badge snippet" : "badge"}>
-        {present === null ? "…" : present ? t("advanced.keys.set") : t("advanced.keys.unset")}
-      </span>
-      <input
-        type="password"
-        autoComplete="off"
-        aria-label={`Chave ${name}`}
-        placeholder={t("advanced.keys.placeholder")}
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-      />
-      <button type="button" className="primary" disabled={value.trim() === ""} onClick={save}>
-        {t("common.save")}
-      </button>
-      <button type="button" disabled={!present} onClick={clear}>
-        {t("common.remove")}
-      </button>
-      {error && (
-        <p className="error key-error" role="alert">
-          {error}
-        </p>
-      )}
-    </div>
   );
 }
 
@@ -146,6 +74,8 @@ export default function Advanced({ settings, error, update }: SettingsState) {
         <p className="hint small">{t("advanced.retention.hint")}</p>
       </section>
 
+      <PrivacySettings {...{ settings, error, update }} />
+
       <section className="card">
         <h2>{t("advanced.voice.title")}</h2>
         <p className="hint small">{t("advanced.voice.hint")}</p>
@@ -173,14 +103,6 @@ export default function Advanced({ settings, error, update }: SettingsState) {
             {t("advanced.voice.off")}
           </button>
         </div>
-      </section>
-
-      <section className="card">
-        <h2>{t("advanced.keys.title")}</h2>
-        <p className="hint small">{t("advanced.keys.hint")}</p>
-        {PROVIDERS.map((p) => (
-          <ApiKeyRow key={p.id} provider={p.id} name={p.name} />
-        ))}
       </section>
     </div>
   );

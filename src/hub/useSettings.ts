@@ -3,9 +3,11 @@ import { listen } from "@tauri-apps/api/event";
 import { SETTINGS_CHANGED, settingsApi } from "./settingsApi";
 import type { Settings } from "./settingsApi";
 import { t } from "./i18n";
+import { uiErrorText } from "./uiError";
 
+/** Texto de um erro (do Rust como `{code, params}`, ou string/Error) no idioma atual. */
 export function errorText(err: unknown): string {
-  return typeof err === "string" ? err : err instanceof Error ? err.message : "erro desconhecido";
+  return uiErrorText(err);
 }
 
 export interface SettingsState {

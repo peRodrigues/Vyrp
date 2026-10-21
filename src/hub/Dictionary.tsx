@@ -7,11 +7,10 @@ import {
   importSummary,
   kindLabel,
 } from "./dictionaryApi";
+import { t } from "./i18n";
+import { errorText } from "./useSettings";
 import type { DictionaryDraft, DictionaryEntry } from "./dictionaryApi";
 
-function errorText(err: unknown): string {
-  return typeof err === "string" ? err : err instanceof Error ? err.message : "Algo deu errado.";
-}
 
 export default function Dictionary() {
   const [entries, setEntries] = useState<DictionaryEntry[]>([]);
@@ -86,7 +85,7 @@ export default function Dictionary() {
       .text()
       .then((csv) => dictionaryApi.importCsv(csv))
       .then((report) => {
-        setNotice(`Importação concluída: ${importSummary(report)}.`);
+        setNotice(t("dict.imported", { summary: importSummary(report) }));
         refresh();
       })
       .catch((err: unknown) => setNotice(errorText(err)));
@@ -98,23 +97,23 @@ export default function Dictionary() {
   };
 
   return (
-    <section className="dictionary" aria-label="Dicionário e snippets">
+    <section className="dictionary" aria-label={t("dict.aria")}>
       <div className="toolbar">
         <input
           type="search"
-          placeholder="Buscar frase ou expansão"
-          aria-label="Buscar"
+          placeholder={t("dict.search")}
+          aria-label={t("dict.searchLabel")}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
         <button type="button" className="primary" onClick={() => startEdit(emptyDraft())}>
-          Adicionar
+          {t("dict.add")}
         </button>
         <button type="button" onClick={() => fileInput.current?.click()}>
-          Importar CSV
+          {t("dict.import")}
         </button>
         <button type="button" onClick={exportCsv}>
-          Exportar CSV
+          {t("dict.export")}
         </button>
         <input
           ref={fileInput}
@@ -143,9 +142,9 @@ export default function Dictionary() {
             save();
           }}
         >
-          <h2>{draft.id === null ? "Nova entrada" : "Editar entrada"}</h2>
+          <h2>{draft.id === null ? t("dict.form.new") : t("dict.form.edit")}</h2>
           <label>
-            Frase (o que você fala)
+            {t("dict.form.phrase")}
             <input
               autoFocus
               value={draft.phrase}
@@ -153,7 +152,7 @@ export default function Dictionary() {
             />
           </label>
           <label>
-            {draft.is_snippet ? "Expansão (texto que entra)" : "Substituição (opcional)"}
+            {draft.is_snippet ? t("dict.form.expansion") : t("dict.form.replacement")}
             <textarea
               rows={3}
               value={draft.replacement ?? ""}
@@ -166,7 +165,7 @@ export default function Dictionary() {
               checked={draft.is_snippet}
               onChange={(e) => setDraft({ ...draft, is_snippet: e.target.checked })}
             />
-            É um snippet (gatilho que vira um texto maior)
+            {t("dict.form.isSnippet")}
           </label>
           {formError && (
             <p className="error" role="alert">
@@ -175,7 +174,7 @@ export default function Dictionary() {
           )}
           <div className="actions">
             <button type="submit" className="primary">
-              Salvar
+              {t("common.save")}
             </button>
             <button
               type="button"
@@ -184,7 +183,7 @@ export default function Dictionary() {
                 setFormError(null);
               }}
             >
-              Cancelar
+              {t("common.cancel")}
             </button>
           </div>
         </form>
@@ -193,8 +192,8 @@ export default function Dictionary() {
       {entries.length === 0 ? (
         <p className="empty">
           {search.trim() === ""
-            ? "Nada por aqui ainda. Adicione nomes e termos que o Vyrp costuma errar."
-            : "Nenhuma entrada encontrada para essa busca."}
+            ? t("dict.empty")
+            : t("dict.emptySearch")}
         </p>
       ) : (
         <ul className="entries">
@@ -203,7 +202,7 @@ export default function Dictionary() {
               <button
                 type="button"
                 className={entry.favorite ? "star on" : "star"}
-                aria-label={entry.favorite ? "Desmarcar favorito" : "Marcar como favorito"}
+                aria-label={entry.favorite ? t("dict.fav.on") : t("dict.fav.off")}
                 aria-pressed={entry.favorite}
                 onClick={() => toggleFavorite(entry)}
               >
@@ -216,21 +215,21 @@ export default function Dictionary() {
               <span className={entry.is_snippet ? "badge snippet" : "badge"}>{kindLabel(entry)}</span>
               {confirmingId === entry.id ? (
                 <span className="confirm">
-                  Apagar?
+                  {t("dict.confirmDelete")}
                   <button type="button" className="danger" onClick={() => remove(entry.id)}>
-                    Sim
+                    {t("common.yes")}
                   </button>
                   <button type="button" onClick={() => setConfirmingId(null)}>
-                    Não
+                    {t("common.no")}
                   </button>
                 </span>
               ) : (
                 <span className="row-actions">
                   <button type="button" onClick={() => startEdit(draftFromEntry(entry))}>
-                    Editar
+                    {t("dict.edit")}
                   </button>
                   <button type="button" onClick={() => setConfirmingId(entry.id)}>
-                    Apagar
+                    {t("common.delete")}
                   </button>
                 </span>
               )}

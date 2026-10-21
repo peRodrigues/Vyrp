@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import { setLanguage } from "./i18n";
 import { chordFromCodes, chordLabel, codeToVk, mouseButtonCode, vkName } from "./keys";
 
 describe("codeToVk", () => {
@@ -65,5 +66,20 @@ describe("chordFromCodes", () => {
     const odd = chordFromCodes(["ControlLeft", "AudioVolumeUp"]);
     expect("error" in odd && odd.error).toMatch(/AudioVolumeUp/);
     expect("error" in chordFromCodes([])).toBe(true);
+  });
+});
+
+describe("em inglês", () => {
+  afterEach(() => setLanguage("pt-BR"));
+
+  it("nomes de teclas e mensagens seguem o idioma", () => {
+    setLanguage("en");
+    expect(vkName(0x20)).toBe("Space");
+    expect(vkName(0xa2)).toBe("Left Ctrl");
+    expect(chordLabel([0x11, 0x0100, 0x20])).toBe("Ctrl + Win + Space");
+    const r = chordFromCodes(["KeyA", "KeyB"]);
+    expect("error" in r && r.error).toMatch(/needs Ctrl/);
+    const odd = chordFromCodes(["ControlLeft", "AudioVolumeUp"]);
+    expect("error" in odd && odd.error).toBe('The key "AudioVolumeUp" cannot be used in a shortcut.');
   });
 });

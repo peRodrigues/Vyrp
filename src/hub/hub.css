@@ -284,6 +284,7 @@ input[type="search"],
 }
 
 select,
+.field input:not([type="checkbox"]):not([type="radio"]),
 input[type="number"],
 .key-row input[type="password"],
 .voice-commands input {
@@ -457,4 +458,288 @@ button:disabled {
 
 .settings .card > button {
   justify-self: start;
+}
+
+/* ---- onboarding (V20) ---- */
+.onboarding {
+  display: grid;
+  gap: 4px;
+  min-height: 100vh;
+  align-content: start;
+}
+
+.stepper {
+  list-style: none;
+  display: flex;
+  gap: 8px;
+  margin: 20px 0 4px;
+  padding: 0;
+}
+
+.stepper li {
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border);
+}
+
+.stepper li.past,
+.stepper li.on {
+  background: var(--accent);
+}
+
+.stepper li.on {
+  opacity: 0.7;
+}
+
+.stepper li span {
+  display: none;
+}
+
+.onboarding-card {
+  display: grid;
+  gap: 14px;
+  margin: 12px 0;
+}
+
+.onboarding-card h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.onboarding-card p {
+  margin: 0;
+}
+
+.bullets {
+  margin: 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 6px;
+}
+
+.onboarding-nav {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.spacer {
+  flex: 1;
+}
+
+button.link {
+  border: 0;
+  background: none;
+  color: var(--muted);
+  text-decoration: underline;
+}
+
+.meter-box {
+  display: grid;
+  gap: 8px;
+}
+
+.meter {
+  height: 14px;
+  border-radius: 7px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.meter span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 70ms linear;
+}
+
+.test-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.test-result {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.result-text {
+  font-size: 16px;
+  white-space: pre-wrap;
+}
+
+.summary {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 16px;
+  margin: 0;
+}
+
+.model-picker {
+  display: grid;
+  gap: 8px;
+}
+
+.model {
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+}
+
+.model.active {
+  border-color: var(--accent);
+}
+
+.models .badge {
+  margin-left: 8px;
+}
+
+.progress {
+  position: relative;
+  height: 14px;
+  margin-top: 8px;
+  border-radius: 7px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.progress span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--accent);
+  opacity: 0.6;
+  transition: width 200ms linear;
+}
+
+.progress em {
+  position: relative;
+  display: block;
+  text-align: center;
+  font-size: 11px;
+  font-style: normal;
+  line-height: 12px;
+}
+
+/* ---- provedores (V17b) ---- */
+.radio-block {
+  align-items: flex-start;
+}
+
+.radio-block .block {
+  display: block;
+}
+
+.example {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.warning {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid #e0a800;
+  color: #e0a800;
+}
+
+.warning button.link {
+  color: inherit;
+}
+
+.test-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.test-ok {
+  color: #4cc38a;
+}
+
+/* ---- diagnóstico (V22) ---- */
+.metrics {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.metrics th,
+.metrics td {
+  padding: 8px 10px;
+  text-align: right;
+  border-bottom: 1px solid var(--border);
+}
+
+.metrics th:first-child,
+.metrics tbody th {
+  text-align: left;
+  font-weight: 500;
+}
+
+.metrics thead th {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.error-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.error-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+h3.small {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+/* ---- privacidade (V21) ---- */
+.chips-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.chips-list li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px 2px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+}
+
+.chips-list button {
+  border: 0;
+  background: none;
+  padding: 0 6px;
+  color: var(--muted);
 }

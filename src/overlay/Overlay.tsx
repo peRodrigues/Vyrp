@@ -20,6 +20,7 @@ import {
   type HiddenPref,
 } from "../shared/overlayPrefs";
 import { t } from "../hub/i18n";
+import { useUiLanguage } from "../shared/uiLanguage";
 import { BARS, barHeights, pushLevel, silence } from "./waveform";
 
 const BAR_MIN_PX = 3;
@@ -110,6 +111,7 @@ export default function Overlay() {
   const [levels, setLevels] = useState<number[]>(() => silence());
   const [hover, setHover] = useState(false);
   const setHiddenPref = useHiddenPref();
+  const language = useUiLanguage();
 
   useEffect(() => {
     const offState = listen<DictationState>(EVENT_STATE, (e) => {
@@ -134,6 +136,7 @@ export default function Overlay() {
   return (
     <div
       className={classes}
+      lang={language}
       role="status"
       aria-live="polite"
       data-tauri-drag-region

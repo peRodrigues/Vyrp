@@ -1,6 +1,7 @@
 // Espelho TS do dicionário (src-tauri/src/storage/dictionary*.rs) e chamadas aos commands.
 
 import { invoke } from "@tauri-apps/api/core";
+import { t } from "./i18n";
 
 export interface DictionaryEntry {
   id: number;
@@ -47,21 +48,24 @@ export const draftFromEntry = (entry: DictionaryEntry): DictionaryDraft => ({
 
 /** Mesmas regras do backend, para avisar antes de enviar. */
 export function draftError(draft: DictionaryDraft): string | null {
-  if (draft.phrase.trim() === "") return "Digite a frase.";
+  if (draft.phrase.trim() === "") return t("dict.err.phrase");
   if (draft.is_snippet && (draft.replacement ?? "").trim() === "") {
-    return "Um snippet precisa de um texto de expansão.";
+    return t("dict.err.snippet");
   }
   return null;
 }
 
 export function kindLabel(entry: Pick<DictionaryEntry, "is_snippet" | "replacement">): string {
-  if (entry.is_snippet) return "Snippet";
-  return entry.replacement ? "Substituição" : "Vocabulário";
+  if (entry.is_snippet) return t("dict.kind.snippet");
+  return entry.replacement ? t("dict.kind.replacement") : t("dict.kind.vocabulary");
 }
 
 export function importSummary(report: ImportReport): string {
-  const parts = [`${report.added} adicionadas`, `${report.updated} atualizadas`];
-  if (report.skipped > 0) parts.push(`${report.skipped} ignoradas`);
+  const parts = [
+    t("dict.import.added", { n: report.added }),
+    t("dict.import.updated", { n: report.updated }),
+  ];
+  if (report.skipped > 0) parts.push(t("dict.import.skipped", { n: report.skipped }));
   return parts.join(", ");
 }
 

@@ -4,6 +4,8 @@ import { t } from "../hub/i18n";
 
 export const EVENT_STATE = "dictation://state";
 export const EVENT_LEVEL = "dictation://level";
+/** Um ditado tomou (ou devolveu) o microfone: payload `{ active: boolean }`. */
+export const EVENT_MONITOR = "audio://monitor";
 
 export type ErrorCode =
   | "mic_unavailable"
@@ -11,7 +13,8 @@ export type ErrorCode =
   | "stt_failed"
   | "llm_failed"
   | "insert_failed"
-  | "timeout";
+  | "timeout"
+  | "blocked";
 
 export type DictationState =
   | { state: "idle" }

@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   describeAction,
+  formatBytes,
   formatDuration,
   formatSize,
   formatWhen,
@@ -9,7 +10,7 @@ import {
   parsePhrases,
   wordsLabel,
 } from "./format";
-import { t } from "./i18n";
+import { setLanguage, t } from "./i18n";
 
 describe("formatWhen", () => {
   const now = new Date(2026, 9, 20, 15, 0);
@@ -99,5 +100,32 @@ describe("moveItem", () => {
     expect(moveItem(list, 0, -1)).toBe(list);
     expect(moveItem(list, 1, 2)).toBe(list);
     expect(moveItem(list, 1, 1)).toBe(list);
+  });
+});
+
+describe("formatBytes", () => {
+  it("converte bytes em MB/GB", () => {
+    expect(formatBytes(466_000_000)).toBe("466 MB");
+    expect(formatBytes(1_500_000_000)).toBe("1,5 GB");
+    expect(formatBytes(-5)).toBe("0 MB");
+  });
+});
+
+describe("em inglês", () => {
+  afterEach(() => setLanguage("pt-BR"));
+
+  it("datas, horas e decimais seguem o idioma", () => {
+    setLanguage("en");
+    const now = new Date(2026, 9, 20, 15, 0);
+    const at = (y: number, mo: number, d: number, h: number, mi: number) =>
+      new Date(y, mo, d, h, mi).getTime();
+    expect(formatWhen(at(2026, 9, 20, 14, 5), now)).toBe("today 14:05");
+    expect(formatWhen(at(2026, 9, 19, 9, 10), now)).toBe("yesterday 09:10");
+    expect(formatWhen(at(2026, 9, 3, 8, 0), now)).toBe("10/03 08:00");
+    expect(formatDuration(1800)).toBe("1.8 s");
+    expect(formatSize(1500)).toBe("1.5 GB");
+    expect(wordsLabel(1)).toBe("1 word");
+    expect(wordsLabel(12)).toBe("12 words");
+    expect(describeAction({ kind: "insert", text: "\n" })).toBe("New line");
   });
 });

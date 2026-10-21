@@ -1,12 +1,16 @@
 import { useEffect, useState } from "react";
 import ShortcutRecorder from "./ShortcutRecorder";
-import { formatSize, mergeRanking, moveItem } from "./format";
-import { t } from "./i18n";
+import ModelPicker from "./ModelPicker";
+import { mergeRanking, moveItem } from "./format";
+import { t, type UiLanguageSetting } from "./i18n";
 import { chordLabel } from "./keys";
 import { settingsApi } from "./settingsApi";
 import { OVERLAY_PREF_KEY, hideForever, parsePref, readPref, writePref } from "../shared/overlayPrefs";
-import type { GestureConfig, SttModelInfo } from "./settingsApi";
+import type { GestureConfig } from "./settingsApi";
+import { useModels } from "./useModels";
 import type { SettingsState } from "./useSettings";
+
+const UI_LANGUAGES: UiLanguageSetting[] = ["auto", "pt-BR", "en"];
 
 const LANGUAGES: { code: string; name: string }[] = [
   { code: "pt", name: "Português" },
@@ -87,17 +91,13 @@ function OverlayToggle() {
 
 export default function General({ settings, error, update }: SettingsState) {
   const [mics, setMics] = useState<string[]>([]);
-  const [models, setModels] = useState<SttModelInfo[]>([]);
+  const modelsState = useModels();
 
   useEffect(() => {
     settingsApi
       .microphones()
       .then(setMics)
       .catch(() => setMics([]));
-    settingsApi
-      .models()
-      .then(setModels)
-      .catch(() => setModels([]));
   }, []);
 
   if (!settings) return <p className="hint">{error ?? t("common.loading")}</p>;
@@ -126,6 +126,22 @@ export default function General({ settings, error, update }: SettingsState) {
           {error}
         </p>
       )}
+
+      <section className="card">
+        <h2>{t("general.ui.title")}</h2>
+        <label className="field">
+          <span className="field-label">{t("general.ui.label")}</span>
+          <select
+            value={UI_LANGUAGES.includes(settings.ui_language as UiLanguageSetting) ? settings.ui_language : "auto"}
+            onChange={(e) => update({ ui_language: e.target.value })}
+          >
+            <option value="auto">{t("general.ui.auto")}</option>
+            <option value="pt-BR">Português (Brasil)</option>
+            <option value="en">English</option>
+          </select>
+        </label>
+        <p className="hint small">{t("general.ui.hint")}</p>
+      </section>
 
       <section className="card">
         <h2>{t("general.mic.title")}</h2>
@@ -272,24 +288,7 @@ export default function General({ settings, error, update }: SettingsState) {
 
       <section className="card">
         <h2>{t("general.model.title")}</h2>
-        <p className="hint small">{t("general.model.soon")}</p>
-        <ul className="models">
-          {models.map((m) => (
-            <li key={m.id}>
-              <div className="entry-text">
-                <strong>{m.name}</strong> <span className="arrow">· {formatSize(m.size_mb)}</span>
-                <div className="hint small">{m.note}</div>
-              </div>
-              {m.installed ? (
-                <span className="badge">{t("general.model.installed")}</span>
-              ) : (
-                <button type="button" disabled={!m.downloadable} title={t("general.model.soon")}>
-                  {t("general.model.download")}
-                </button>
-              )}
-            </li>
-          ))}
-        </ul>
+        <ModelPicker {...modelsState} />
       </section>
     </div>
   );
