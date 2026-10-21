@@ -19,6 +19,7 @@ use std::sync::Arc;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Listener, Manager, State};
 
+use crate::core::ui_error::UiError;
 use crate::settings::{self, SettingsStore};
 use models::ModelStore;
 use whisper::{SttStatus, WhisperEngine};
@@ -34,7 +35,6 @@ pub struct LocalStt(pub Arc<WhisperEngine>);
 #[derive(Debug, Clone, Serialize)]
 pub struct ModelEntry {
     pub id: &'static str,
-    pub label: &'static str,
     pub size_bytes: u64,
     pub installed: bool,
     pub downloading: bool,
@@ -54,7 +54,7 @@ pub struct DownloadProgress {
 #[derive(Debug, Clone, Serialize)]
 pub struct DownloadResult {
     pub id: String,
-    pub error: Option<String>,
+    pub error: Option<UiError>,
 }
 
 /// Registra pasta de modelos e motor; carrega o modelo do Settings se já estiver baixado.
@@ -103,7 +103,6 @@ pub fn model_list(
         .iter()
         .map(|spec| ModelEntry {
             id: spec.id,
-            label: spec.label,
             size_bytes: spec.size_bytes,
             installed: store.is_installed(spec),
             downloading: store.is_downloading(spec),
@@ -120,8 +119,8 @@ pub fn model_list(
 /// Baixa e verifica o modelo; progresso em `model://progress`, fim em `model://done` ou
 /// `model://error`. Se for o modelo ativo, já carrega.
 #[tauri::command]
-pub async fn model_download(app: AppHandle, id: String) -> Result<(), String> {
-    let spec = catalog::find(&id).ok_or_else(|| format!("modelo desconhecido: {id}"))?;
+pub async fn model_download(app: AppHandle, id: String) -> Result<(), UiError> {
+    let spec = unknown_model(&id)?;
     let store = app.state::<ModelStore>();
     if store.is_installed(spec) {
         let _ = app.emit(EVENT_MODEL_DONE, DownloadResult { id, error: None });
@@ -163,6 +162,12 @@ pub async fn model_download(app: AppHandle, id: String) -> Result<(), String> {
     }
 }
 
+fn unknown_model(id: &str) -> Result<&'static catalog::ModelSpec, UiError> {
+    catalog::find(id).ok_or_else(|| {
+        UiError::new("model.unknown", format!("modelo desconhecido: {id}")).with("id", id)
+    })
+}
+
 #[tauri::command]
 pub fn model_status(stt: State<'_, LocalStt>) -> SttStatus {
     stt.0.status()
@@ -174,8 +179,8 @@ pub fn model_select(
     app: AppHandle,
     settings: State<'_, SettingsStore>,
     id: String,
-) -> Result<SttStatus, String> {
-    catalog::find(&id).ok_or_else(|| format!("modelo desconhecido: {id}"))?;
+) -> Result<SttStatus, UiError> {
+    unknown_model(&id)?;
     let mut next = settings.get();
     next.stt_model = id;
     let saved = settings.set(next)?;

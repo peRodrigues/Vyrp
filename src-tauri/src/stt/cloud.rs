@@ -19,6 +19,7 @@ use crate::audio::wav;
 use crate::core::types::{
     AudioClip, Result, SttEngine, SttOptions, SttTimings, Transcript, TranscriptSegment, VyrpError,
 };
+use crate::core::ui_error::UiError;
 use crate::settings::secrets::{Provider, Secrets};
 
 /// Limite de upload das duas APIs (25 MB); deixamos uma folga para o cabeçalho multipart.
@@ -88,11 +89,62 @@ impl CloudSttError {
     }
 }
 
+impl CloudSttError {
+    /// Código estável + parâmetros para a tela (`uierr.<code>`); o `Display` segue em português.
+    pub fn ui(&self) -> UiError {
+        let text = self.to_string();
+        match self {
+            CloudSttError::MissingKey(p) => {
+                UiError::new("provider.missing_key", text).with("provider", p)
+            }
+            CloudSttError::Unauthorized(p) => {
+                UiError::new("provider.unauthorized", text).with("provider", p)
+            }
+            CloudSttError::Timeout(p) => UiError::new("provider.timeout", text).with("provider", p),
+            CloudSttError::KeyStore(detail) => {
+                UiError::new("provider.key_store", text).with("detail", detail)
+            }
+            CloudSttError::EmptyAudio => UiError::new("stt.empty_audio", text),
+            CloudSttError::TooLarge { size, limit } => UiError::new("stt.audio_too_large", text)
+                .with("size", size)
+                .with("limit", limit),
+            CloudSttError::RateLimited {
+                provider,
+                retry_after_secs: Some(secs),
+            } => UiError::new("provider.rate_limited_retry", text)
+                .with("provider", provider)
+                .with("secs", secs),
+            CloudSttError::RateLimited { provider, .. } => {
+                UiError::new("provider.rate_limited", text).with("provider", provider)
+            }
+            CloudSttError::Network { provider, detail } => UiError::new("provider.network", text)
+                .with("provider", provider)
+                .with("detail", detail),
+            CloudSttError::BadResponse { provider, detail } => {
+                UiError::new("provider.bad_response", text)
+                    .with("provider", provider)
+                    .with("detail", detail)
+            }
+            CloudSttError::Server { provider, status } => UiError::new("provider.server", text)
+                .with("provider", provider)
+                .with("status", status),
+            CloudSttError::Rejected {
+                provider,
+                status,
+                message,
+            } => UiError::new("provider.rejected", text)
+                .with("provider", provider)
+                .with("status", status)
+                .with("message", message),
+        }
+    }
+}
+
 impl From<CloudSttError> for VyrpError {
     fn from(err: CloudSttError) -> Self {
-        match err {
-            CloudSttError::Timeout(_) => VyrpError::Timeout(err.to_string()),
-            other => VyrpError::Stt(other.to_string()),
+        VyrpError::Provider {
+            kind: "speech-to-text",
+            error: err.ui(),
         }
     }
 }
@@ -882,14 +934,14 @@ mod tests {
 
     #[test]
     fn errors_convert_to_vyrp_errors() {
-        assert!(matches!(
-            VyrpError::from(CloudSttError::Timeout("Groq")),
-            VyrpError::Timeout(_)
-        ));
-        assert!(matches!(
-            VyrpError::from(CloudSttError::Unauthorized("Groq")),
-            VyrpError::Stt(_)
-        ));
+        for (err, code) in [
+            (CloudSttError::Timeout("Groq"), "provider.timeout"),
+            (CloudSttError::Unauthorized("Groq"), "provider.unauthorized"),
+        ] {
+            assert!(
+                matches!(VyrpError::from(err), VyrpError::Provider { error, .. } if error.code == code)
+            );
+        }
         assert!(CloudSttError::Timeout("x").allows_fallback());
         assert!(!CloudSttError::EmptyAudio.allows_fallback());
     }
@@ -1102,7 +1154,10 @@ mod tests {
     fn trait_surface_returns_vyrp_errors() {
         let e = GroqEngine::new(keys(None));
         let err = block_on(e.transcribe(&clip(500), &SttOptions::default())).unwrap_err();
-        assert!(matches!(err, VyrpError::Stt(m) if m.contains("chave de API")));
+        assert!(
+            matches!(&err, VyrpError::Provider { error, .. } if error.code == "provider.missing_key")
+        );
+        assert!(err.to_string().contains("chave de API"));
     }
 
     // ------------------------------------------------------------ política
@@ -1243,5 +1298,66 @@ mod tests {
         fn clear(&self, _: Provider) -> std::result::Result<(), String> {
             Ok(())
         }
+    }
+}
+
+#[cfg(test)]
+mod ui_error_tests {
+    use super::*;
+
+    #[test]
+    fn cloud_errors_carry_code_and_params_for_the_ui() {
+        let cases = [
+            (CloudSttError::MissingKey("Groq"), "provider.missing_key"),
+            (CloudSttError::Unauthorized("Groq"), "provider.unauthorized"),
+            (CloudSttError::Timeout("Groq"), "provider.timeout"),
+            (CloudSttError::EmptyAudio, "stt.empty_audio"),
+            (
+                CloudSttError::TooLarge { size: 10, limit: 5 },
+                "stt.audio_too_large",
+            ),
+            (
+                CloudSttError::RateLimited {
+                    provider: "Groq",
+                    retry_after_secs: None,
+                },
+                "provider.rate_limited",
+            ),
+            (
+                CloudSttError::Server {
+                    provider: "OpenAI",
+                    status: 502,
+                },
+                "provider.server",
+            ),
+        ];
+        for (err, code) in cases {
+            assert_eq!(err.ui().code, code, "{err}");
+        }
+        let large = CloudSttError::TooLarge { size: 10, limit: 5 }.ui();
+        assert_eq!(
+            (
+                large.params["size"].as_str(),
+                large.params["limit"].as_str()
+            ),
+            ("10", "5")
+        );
+        let retry = CloudSttError::RateLimited {
+            provider: "Groq",
+            retry_after_secs: Some(12),
+        }
+        .ui();
+        assert_eq!(retry.code, "provider.rate_limited_retry");
+        assert_eq!(retry.params["secs"], "12");
+    }
+
+    #[test]
+    fn the_vyrp_error_keeps_the_code_and_the_portuguese_log_text() {
+        let err: VyrpError = CloudSttError::Timeout("Groq").into();
+        assert_eq!(err.ui().code, "provider.timeout");
+        assert_eq!(
+            err.to_string(),
+            "speech-to-text: tempo esgotado falando com o Groq"
+        );
     }
 }

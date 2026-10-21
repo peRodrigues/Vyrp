@@ -6,6 +6,8 @@
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
+use crate::core::ui_error::UiError;
+
 const SERVICE: &str = "vyrp";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -78,19 +80,19 @@ impl Secrets {
         Self { backend }
     }
 
-    pub fn set(&self, provider: Provider, value: &str) -> Result<(), String> {
+    pub fn set(&self, provider: Provider, value: &str) -> Result<(), UiError> {
         let value = value.trim();
         if value.is_empty() {
-            return Err("a chave está vazia".into());
+            return Err(UiError::new("key.empty", "a chave está vazia"));
         }
-        self.backend.set(provider, value)
+        Ok(self.backend.set(provider, value)?)
     }
 
-    pub fn clear(&self, provider: Provider) -> Result<(), String> {
-        self.backend.clear(provider)
+    pub fn clear(&self, provider: Provider) -> Result<(), UiError> {
+        Ok(self.backend.clear(provider)?)
     }
 
-    pub fn has(&self, provider: Provider) -> Result<bool, String> {
+    pub fn has(&self, provider: Provider) -> Result<bool, UiError> {
         Ok(self.backend.get(provider)?.is_some())
     }
 
@@ -105,17 +107,17 @@ pub fn set_api_key(
     secrets: State<'_, Secrets>,
     provider: Provider,
     value: String,
-) -> Result<(), String> {
+) -> Result<(), UiError> {
     secrets.set(provider, &value)
 }
 
 #[tauri::command]
-pub fn clear_api_key(secrets: State<'_, Secrets>, provider: Provider) -> Result<(), String> {
+pub fn clear_api_key(secrets: State<'_, Secrets>, provider: Provider) -> Result<(), UiError> {
     secrets.clear(provider)
 }
 
 #[tauri::command]
-pub fn has_api_key(secrets: State<'_, Secrets>, provider: Provider) -> Result<bool, String> {
+pub fn has_api_key(secrets: State<'_, Secrets>, provider: Provider) -> Result<bool, UiError> {
     secrets.has(provider)
 }
 
@@ -167,7 +169,7 @@ mod tests {
     #[test]
     fn empty_key_is_refused_and_clear_missing_is_ok() {
         let s = secrets();
-        assert!(s.set(Provider::Groq, "   ").is_err());
+        assert_eq!(s.set(Provider::Groq, "   ").unwrap_err().code, "key.empty");
         s.clear(Provider::Anthropic).unwrap();
     }
 

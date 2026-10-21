@@ -9,6 +9,7 @@ use futures_util::StreamExt;
 use sha2::{Digest, Sha256};
 
 use super::catalog::ModelSpec;
+use crate::core::ui_error::UiError;
 
 /// Pasta dos modelos e downloads em andamento.
 pub struct ModelStore {
@@ -44,9 +45,13 @@ impl ModelStore {
         &self,
         spec: &'static ModelSpec,
         on_progress: impl FnMut(u64, u64),
-    ) -> Result<PathBuf, String> {
+    ) -> Result<PathBuf, UiError> {
         if !self.downloading.lock().unwrap().insert(spec.id) {
-            return Err(format!("o modelo {} já está sendo baixado", spec.id));
+            return Err(UiError::new(
+                "model.already_downloading",
+                format!("o modelo {} já está sendo baixado", spec.id),
+            )
+            .with("id", spec.id));
         }
         let dest = self.path(spec);
         let result = download_to(
@@ -62,6 +67,10 @@ impl ModelStore {
     }
 }
 
+fn raw(err: impl std::fmt::Display) -> UiError {
+    UiError::raw(err.to_string())
+}
+
 /// Download em fluxo para `<dest>.part`, com SHA-256 calculado no caminho; só renomeia
 /// para `dest` se tamanho e hash baterem. Falha apaga o parcial.
 pub async fn download_to(
@@ -70,43 +79,58 @@ pub async fn download_to(
     expected_size: u64,
     expected_sha256: &str,
     mut on_progress: impl FnMut(u64, u64),
-) -> Result<(), String> {
+) -> Result<(), UiError> {
     if let Some(dir) = dest.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+        std::fs::create_dir_all(dir).map_err(raw)?;
     }
     let part = dest.with_extension("part");
     let outcome = async {
         let response = reqwest::get(url)
             .await
             .and_then(|r| r.error_for_status())
-            .map_err(|e| format!("download falhou: {e}"))?;
+            .map_err(|e| {
+                UiError::new("model.download_failed", format!("download falhou: {e}"))
+                    .with("detail", e)
+            })?;
         let total = response.content_length().unwrap_or(expected_size);
-        let mut file = std::fs::File::create(&part).map_err(|e| e.to_string())?;
+        let mut file = std::fs::File::create(&part).map_err(raw)?;
         let mut hasher = Sha256::new();
         let mut done = 0u64;
         let mut throttle = ProgressThrottle::new(total);
         let mut stream = response.bytes_stream();
         while let Some(chunk) = stream.next().await {
-            let chunk = chunk.map_err(|e| format!("download interrompido: {e}"))?;
-            file.write_all(&chunk).map_err(|e| e.to_string())?;
+            let chunk = chunk.map_err(|e| {
+                UiError::new(
+                    "model.download_interrupted",
+                    format!("download interrompido: {e}"),
+                )
+                .with("detail", e)
+            })?;
+            file.write_all(&chunk).map_err(raw)?;
             hasher.update(&chunk);
             done += chunk.len() as u64;
             if throttle.should_emit(done) {
                 on_progress(done, total);
             }
         }
-        file.flush().map_err(|e| e.to_string())?;
+        file.flush().map_err(raw)?;
         drop(file);
         if done != expected_size {
-            return Err(format!(
-                "tamanho errado: {done} bytes, esperado {expected_size}"
-            ));
+            return Err(UiError::new(
+                "model.wrong_size",
+                format!("tamanho errado: {done} bytes, esperado {expected_size}"),
+            )
+            .with("got", done)
+            .with("expected", expected_size));
         }
         let got = hex(&hasher.finalize());
         if !got.eq_ignore_ascii_case(expected_sha256) {
-            return Err(format!("SHA-256 não confere: {got}"));
+            return Err(
+                UiError::new("model.bad_hash", format!("SHA-256 não confere: {got}"))
+                    .with("got", got),
+            );
         }
-        std::fs::rename(&part, dest).map_err(|e| e.to_string())
+        std::fs::rename(&part, dest).map_err(raw)
     }
     .await;
     if outcome.is_err() {
@@ -218,7 +242,8 @@ mod tests {
             |_, _| {},
         ))
         .unwrap_err();
-        assert!(err.contains("SHA-256"), "{err}");
+        assert!(err.to_string().contains("SHA-256"), "{err}");
+        assert_eq!(err.code, "model.bad_hash");
         assert!(!dest.exists() && !dest.with_extension("part").exists());
     }
 

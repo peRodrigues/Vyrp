@@ -586,7 +586,9 @@ mod tests {
         let err = block_on(c.try_clean(&request(RAW))).unwrap_err();
         assert_eq!(err, LlmError::Timeout("Anthropic"));
         assert!(started.elapsed() < Duration::from_millis(1_400));
-        assert!(matches!(VyrpError::from(err), VyrpError::Timeout(_)));
+        assert!(
+            matches!(VyrpError::from(err), VyrpError::Provider { error, .. } if error.code == "provider.timeout")
+        );
     }
 
     #[test]
@@ -697,6 +699,10 @@ mod tests {
             Duration::from_secs(3),
         );
         let err = block_on(c.clean(&request(RAW))).unwrap_err();
-        assert!(matches!(err, VyrpError::Llm(m) if m.contains("chave de API")));
+        assert!(
+            matches!(&err, VyrpError::Provider { error, .. } if error.code == "provider.missing_key"),
+            "{err}"
+        );
+        assert!(err.to_string().contains("chave de API"));
     }
 }

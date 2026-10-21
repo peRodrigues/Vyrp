@@ -25,6 +25,15 @@ pub enum GuardReject {
 }
 
 impl GuardReject {
+    pub fn code(self) -> &'static str {
+        match self {
+            GuardReject::Empty => "llm.guard_empty",
+            GuardReject::Conversational => "llm.guard_conversational",
+            GuardReject::TooLong => "llm.guard_too_long",
+            GuardReject::TooShort => "llm.guard_too_short",
+        }
+    }
+
     pub fn reason(self) -> &'static str {
         match self {
             GuardReject::Empty => "o modelo devolveu texto vazio",
@@ -33,6 +42,19 @@ impl GuardReject {
             GuardReject::TooShort => "o texto devolvido é muito menor que o ditado",
         }
     }
+}
+
+/// Código estável (`uierr.<code>`) de um motivo de [`GuardReject::reason`].
+pub fn reason_code(reason: &str) -> &'static str {
+    [
+        GuardReject::Empty,
+        GuardReject::Conversational,
+        GuardReject::TooLong,
+        GuardReject::TooShort,
+    ]
+    .into_iter()
+    .find(|r| r.reason() == reason)
+    .map_or("llm.guard_unknown", GuardReject::code)
 }
 
 fn preamble() -> &'static Regex {

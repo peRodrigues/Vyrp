@@ -13,6 +13,7 @@ use crate::core::types::{
     AudioClip, Result, SAMPLE_RATE, SttEngine, SttOptions, SttTimings, Transcript,
     TranscriptSegment, VyrpError,
 };
+use crate::core::ui_error::UiError;
 
 /// Áudio mais curto que isso não vai ao whisper (vira transcrição vazia).
 const MIN_AUDIO_MS: u64 = 300;
@@ -58,7 +59,7 @@ pub struct SttStatus {
     pub backend: &'static str,
     /// Carga + aquecimento, em ms.
     pub load_ms: Option<u64>,
-    pub error: Option<String>,
+    pub error: Option<UiError>,
 }
 
 type StatusHook = Box<dyn Fn(&SttStatus) + Send + Sync>;
@@ -144,7 +145,10 @@ impl WhisperEngine {
                     Err(err) => {
                         tracing::error!(model = %id, %err, "falha ao carregar o modelo whisper");
                         inner.status.state = LoadState::Error;
-                        inner.status.error = Some(err);
+                        inner.status.error = Some(
+                            UiError::new("model.load_failed", format!("falha ao carregar o modelo: {err}"))
+                                .with("detail", err),
+                        );
                     }
                 }
                 drop(inner);
@@ -188,7 +192,12 @@ impl WhisperEngine {
         inner.ctx.clone().ok_or_else(|| {
             VyrpError::Stt(match inner.status.state {
                 LoadState::Loading => "o modelo ainda está carregando".into(),
-                LoadState::Error => inner.status.error.clone().unwrap_or_default(),
+                LoadState::Error => inner
+                    .status
+                    .error
+                    .as_ref()
+                    .map(ToString::to_string)
+                    .unwrap_or_default(),
                 _ => "nenhum modelo de transcrição instalado".into(),
             })
         })
