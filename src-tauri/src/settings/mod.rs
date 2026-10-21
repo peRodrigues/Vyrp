@@ -84,6 +84,8 @@ pub struct Settings {
     pub autostart: bool,
     /// Auto-aprendizado do dicionário (V24): desligado, sugerir no hub ou automático.
     pub dictionary_learning: crate::learn::LearnMode,
+    /// Manter as reticências que o STT põe nas pausas. Desligado = viram texto corrido.
+    pub keep_ellipsis: bool,
     /// Lista de privacidade (apps/sites bloqueados) e áudio no histórico. Campo aditivo:
     /// arquivos antigos caem nos padrões, sem migração.
     pub privacy: Privacy,
@@ -121,6 +123,7 @@ impl Default for Settings {
             media_duck_factor: 0.2,
             autostart: false,
             dictionary_learning: crate::learn::LearnMode::default(),
+            keep_ellipsis: false,
             privacy: Privacy::default(),
             cleanup: CleanupLevel::default(),
             style: WritingStyle::default(),

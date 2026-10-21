@@ -40,6 +40,8 @@ pub struct PostOptions {
     pub press_enter_command: bool,
     /// Reconhecer "nova linha", "novo parágrafo" e "apagar isso" (V26).
     pub voice_commands: bool,
+    /// Manter as reticências do STT. Desligado: as que o whisper põe nas pausas somem.
+    pub keep_ellipsis: bool,
 }
 
 impl Default for PostOptions {
@@ -49,6 +51,7 @@ impl Default for PostOptions {
             preceding: None,
             press_enter_command: true,
             voice_commands: true,
+            keep_ellipsis: false,
         }
     }
 }
@@ -171,6 +174,9 @@ pub fn process_with(
     if opts.voice_commands {
         text = commands.apply_inserts(&text);
     }
+    if !opts.keep_ellipsis {
+        text = strip_pause_ellipses(&text);
+    }
 
     text = match opts.format {
         TextFormat::Raw => text,
@@ -188,6 +194,93 @@ pub fn process_with(
         press_enter,
         undo_last: false,
     }
+}
+
+fn ellipsis_regex() -> &'static Regex {
+    static RE: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"[ \t]*(?:\.{2,}|…)+[ \t]*").expect("regex fixa"))
+}
+
+/// Palavras que continuam a ideia depois de uma pausa: com elas o texto segue corrido em
+/// minúscula (o whisper põe maiúscula no começo de cada trecho do incremental).
+const CONTINUATION_WORDS: &[&str] = &[
+    "e", "é", "que", "mas", "então", "porque", "pra", "para", "a", "o", "as", "os", "um", "uma",
+    "de", "do", "da", "no", "na", "em", "com", "se", "eu", "isso", "aí", "tipo", "também", "só",
+    "mais", "ou", "nem", "como", "quando", "and", "but", "so", "or", "the", "to", "that",
+    "because", "then",
+];
+
+/// Conectivos que quase nunca abrem frase: depois de um "." do corte do incremental, a
+/// frase continua. Artigos e pronomes ficam de fora (abrem frase de verdade).
+const STRICT_CONTINUATION_WORDS: &[&str] = &[
+    "e", "que", "porque", "pra", "para", "de", "do", "da", "dos", "das", "no", "na", "nos", "nas",
+    "em", "com", "ou", "nem", "and", "or", "to", "because", "that", "of",
+];
+
+fn first_word(after: &str) -> String {
+    after
+        .chars()
+        .take_while(|c| c.is_alphabetic())
+        .collect::<String>()
+        .to_lowercase()
+}
+
+/// A palavra seguinte só pode continuar a frase anterior (lista estrita).
+pub(crate) fn strictly_continues(after: &str) -> bool {
+    STRICT_CONTINUATION_WORDS.contains(&first_word(after).as_str())
+}
+
+pub(crate) fn continues_idea(after: &str) -> bool {
+    let word: String = after
+        .chars()
+        .take_while(|c| c.is_alphabetic())
+        .collect::<String>()
+        .to_lowercase();
+    CONTINUATION_WORDS.contains(&word.as_str())
+}
+
+/// Reticências que o whisper escreve quando a pessoa pausa para pensar ("eu acho... que")
+/// viram texto corrido: no meio, espaço (antes de maiúscula, ". ", salvo palavra de ligação,
+/// que fica minúscula); no fim, ponto; no começo, nada. Intervalos ("1...10") ficam.
+pub fn strip_pause_ellipses(text: &str) -> String {
+    let re = ellipsis_regex();
+    let mut out = String::with_capacity(text.len());
+    let mut last = 0;
+    for m in re.find_iter(text) {
+        let before = &text[..m.start()];
+        let after = &text[m.end()..];
+        let prev = before.chars().next_back();
+        let next = after.chars().next();
+        out.push_str(&text[last..m.start()]);
+        last = m.end();
+        if prev.is_some_and(|c| c.is_ascii_digit()) && next.is_some_and(|c| c.is_ascii_digit()) {
+            out.push_str(m.as_str());
+            continue;
+        }
+        let at_start = before.trim().is_empty() || prev == Some('\n');
+        let at_end = after.trim().is_empty() || next == Some('\n');
+        let after_punct = prev.is_some_and(|c| matches!(c, '.' | ',' | ';' | ':' | '!' | '?'));
+        if at_start {
+            continue;
+        }
+        if at_end {
+            if !after_punct {
+                out.push('.');
+            }
+            continue;
+        }
+        match next {
+            Some(c) if c.is_uppercase() && !after_punct && continues_idea(after) => {
+                out.push(' ');
+                out.extend(c.to_lowercase());
+                last += c.len_utf8();
+            }
+            Some(c) if c.is_uppercase() && !after_punct => out.push_str(". "),
+            _ => out.push(' '),
+        }
+    }
+    out.push_str(&text[last..]);
+    out
 }
 
 /// Vários espaços/tabs viram um; quebras de linha ficam.
@@ -279,6 +372,54 @@ pub fn init(app: &tauri::AppHandle) {
 mod tests {
     use super::*;
 
+    #[test]
+    fn pause_ellipses_become_running_text() {
+        assert_eq!(
+            strip_pause_ellipses("eu acho... que sim"),
+            "eu acho que sim"
+        );
+        assert_eq!(strip_pause_ellipses("eu acho … que sim"), "eu acho que sim");
+        assert_eq!(
+            strip_pause_ellipses("então... Amanhã eu vejo"),
+            "então. Amanhã eu vejo"
+        );
+        // Junção do incremental: trecho novo começa com maiúscula, mas continua a ideia.
+        assert_eq!(
+            strip_pause_ellipses("eu acho... Que sim"),
+            "eu acho que sim"
+        );
+        assert_eq!(
+            strip_pause_ellipses("falei com... Maria"),
+            "falei com. Maria"
+        );
+        assert_eq!(strip_pause_ellipses("vamos... É isso"), "vamos é isso");
+        assert_eq!(strip_pause_ellipses("vamos ver..."), "vamos ver.");
+        assert_eq!(strip_pause_ellipses("...e depois"), "e depois");
+        assert_eq!(strip_pause_ellipses("sim,... então"), "sim, então");
+        assert_eq!(strip_pause_ellipses("páginas 1...10"), "páginas 1...10");
+        assert_eq!(strip_pause_ellipses("linha...\nnova"), "linha.\nnova");
+        assert_eq!(strip_pause_ellipses("sem nada"), "sem nada");
+    }
+
+    #[test]
+    fn keep_ellipsis_option_preserves_them() {
+        let rules = Rules::default();
+        let commands = CompiledCommands::default();
+        let off = process_with(
+            &rules,
+            &commands,
+            "eu acho... que sim",
+            &PostOptions::default(),
+        );
+        assert_eq!(off.text, "Eu acho que sim");
+        let keep = PostOptions {
+            keep_ellipsis: true,
+            ..PostOptions::default()
+        };
+        let on = process_with(&rules, &commands, "eu acho... que sim", &keep);
+        assert_eq!(on.text, "Eu acho... que sim");
+    }
+
     fn entry(phrase: &str, replacement: Option<&str>, snippet: bool) -> DictionaryEntry {
         DictionaryEntry {
             id: 0,
@@ -316,6 +457,7 @@ mod tests {
                 preceding: preceding.map(Into::into),
                 press_enter_command: true,
                 voice_commands: true,
+                ..PostOptions::default()
             },
         )
     }

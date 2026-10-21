@@ -92,6 +92,43 @@ fn words(text: &str) -> Vec<String> {
 /// Junta dois textos de segmentos seguidos sem repetir palavras da junção (o whisper às
 /// vezes repete o fim do prompt no começo do segmento novo).
 pub fn join_texts(previous: &str, next: &str) -> String {
+    join_texts_with(previous, next, &[])
+}
+
+/// A junção é uma pausa nossa (o corte), não um fim de frase do usuário: o whisper fecha
+/// cada trecho com "..." ou "." e começa o seguinte com maiúscula. Aqui a ideia continua:
+/// "..." sai sempre (a próxima palavra fica minúscula, salvo termo do vocabulário); "." sai
+/// quando a próxima palavra é de ligação. "?" e "!" ficam.
+fn seam(previous: &str, next: &str, vocabulary: &[String]) -> (String, String) {
+    let trimmed = previous.trim_end();
+    let without_dots = trimmed.trim_end_matches(['.', '…']);
+    let dots = &trimmed[without_dots.len()..];
+    let ellipsis = dots.contains('…') || dots.len() >= 2;
+    let first: String = next.chars().take_while(|c| c.is_alphanumeric()).collect();
+    let known = vocabulary
+        .iter()
+        .any(|v| v.split_whitespace().next() == Some(first.as_str()));
+    // Depois de "...", qualquer palavra de ligação; depois de ".", só os conectivos estritos.
+    let continues = if ellipsis {
+        crate::post::continues_idea(next)
+    } else {
+        crate::post::strictly_continues(next)
+    };
+    if !(ellipsis || (dots == "." && continues)) {
+        return (previous.to_string(), next.to_string());
+    }
+    let mut chars = next.chars();
+    let next = match chars.next() {
+        Some(c) if c.is_uppercase() && !known && (ellipsis || continues) => {
+            c.to_lowercase().chain(chars).collect()
+        }
+        _ => next.to_string(),
+    };
+    (without_dots.trim_end().to_string(), next)
+}
+
+/// [`join_texts`] com o vocabulário do dicionário (nomes próprios mantêm a maiúscula).
+pub fn join_texts_with(previous: &str, next: &str, vocabulary: &[String]) -> String {
     let (previous, next) = (previous.trim(), next.trim());
     if previous.is_empty() {
         return next.to_string();
@@ -108,7 +145,8 @@ pub fn join_texts(previous: &str, next: &str) -> String {
     if rest.is_empty() {
         return previous.to_string();
     }
-    format!("{previous} {}", rest.join(" "))
+    let (previous, rest) = seam(previous, &rest.join(" "), vocabulary);
+    format!("{previous} {rest}")
 }
 
 /// Trechos de fala de `pcm[from..]`, relativos a `from`.
@@ -259,7 +297,7 @@ impl Incremental {
             "STT incremental: juntado"
         );
         Some(Ok(Transcript {
-            text: join_texts(&progress.text, &tail.text),
+            text: join_texts_with(&progress.text, &tail.text, &self.opts.vocabulary),
             language: progress.language.or(tail.language),
             segments,
             timings: crate::core::types::SttTimings {
@@ -360,7 +398,7 @@ fn decode_chunk(
     match transcript {
         Ok(t) => {
             let offset = (committed * 1000 / SAMPLE_RATE as usize) as u64;
-            progress.text = join_texts(&progress.text, &t.text);
+            progress.text = join_texts_with(&progress.text, &t.text, &opts.vocabulary);
             progress.language = progress.language.take().or(t.language);
             progress
                 .segments
@@ -449,6 +487,34 @@ mod tests {
         assert_eq!(join_texts("", " só o fim "), "só o fim");
         assert_eq!(join_texts("só o começo", ""), "só o começo");
         assert_eq!(join_texts("igual", "igual"), "igual");
+    }
+
+    #[test]
+    fn seam_punctuation_from_the_cut_does_not_break_the_idea() {
+        // Reproduzido com TTS com pausas de 2,2 s (BUGS-USO).
+        assert_eq!(
+            join_texts("a gente podia...", "Mudar o horário"),
+            "a gente podia mudar o horário"
+        );
+        assert_eq!(
+            join_texts("a reunião.", "Para quinta-feira"),
+            "a reunião para quinta-feira"
+        );
+        assert_eq!(join_texts("no médico.", "E não sei"), "no médico e não sei");
+        // Fim de frase de verdade, pergunta e nome próprio ficam.
+        assert_eq!(
+            join_texts("Fechado.", "Amanhã eu vejo"),
+            "Fechado. Amanhã eu vejo"
+        );
+        assert_eq!(join_texts("de manhã?", "Porque"), "de manhã? Porque");
+        // Artigo/pronome depois de "." abre frase de verdade (visto no WAV de 105 s).
+        assert_eq!(join_texts("automática.", "O time"), "automática. O time");
+        assert_eq!(join_texts("do Vyrp.", "O ditado"), "do Vyrp. O ditado");
+        let vocab = vec!["Maria".to_string()];
+        assert_eq!(
+            join_texts_with("falei com…", "Maria ontem", &vocab),
+            "falei com Maria ontem"
+        );
     }
 
     /// Falso: devolve "s<início>" por trecho e anota o prompt recebido.

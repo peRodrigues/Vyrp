@@ -296,6 +296,8 @@ pub fn initial_prompt(vocabulary: &[String]) -> String {
 /// fica com o fim do prompt quando passa do limite), o fim do texto anterior.
 pub fn continuation_prompt(vocabulary: &[String], previous: &str) -> String {
     let vocab = initial_prompt(vocabulary);
+    // Reticências no fim do texto anterior induzem o whisper a pôr mais (pausas).
+    let previous = crate::post::strip_pause_ellipses(previous);
     let previous = previous.trim();
     if previous.is_empty() {
         return vocab;
@@ -472,6 +474,7 @@ mod tests {
             "Vyrp. Primeira frase."
         );
         assert_eq!(continuation_prompt(&[], "só texto"), "só texto");
+        assert_eq!(continuation_prompt(&[], "eu acho... que"), "eu acho que");
         let long = "palavra ".repeat(100);
         let prompt = continuation_prompt(&[], &long);
         assert!(prompt.chars().count() <= MAX_PREVIOUS_CHARS);

@@ -64,6 +64,8 @@ export interface Settings {
   sounds: boolean;
   /** Auto-aprendizado do dicionário (V24). */
   dictionary_learning: LearnMode;
+  /** Manter as reticências que o STT põe nas pausas (padrão: não). */
+  keep_ellipsis: boolean;
   [extra: string]: unknown;
 }
 

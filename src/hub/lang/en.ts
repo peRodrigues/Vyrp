@@ -160,6 +160,9 @@ export const en: Record<keyof typeof ptBR, string> = {
   "advanced.voice.undo": "Undoes the last pasted text",
   "advanced.voice.off": "Turn all off",
   "advanced.voice.empty": "Voice commands are off.",
+  "advanced.text.title": "Text",
+  "advanced.text.keepEllipsis": "Keep ellipses (…)",
+  "advanced.text.keepEllipsisHint": "When off, the ellipses that appear when you pause to think become running text.",
 
   "diag.title": "Diagnostics",
   "diag.lead": "To understand slowness or errors: numbers and codes, never what you said.",

@@ -77,6 +77,19 @@ export default function Advanced({ settings, error, update }: SettingsState) {
       <PrivacySettings {...{ settings, error, update }} />
 
       <section className="card">
+        <h2>{t("advanced.text.title")}</h2>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={settings.keep_ellipsis}
+            onChange={(e) => update({ keep_ellipsis: e.target.checked })}
+          />
+          {t("advanced.text.keepEllipsis")}
+        </label>
+        <p className="hint small">{t("advanced.text.keepEllipsisHint")}</p>
+      </section>
+
+      <section className="card">
         <h2>{t("advanced.voice.title")}</h2>
         <p className="hint small">{t("advanced.voice.hint")}</p>
         {settings.voice_commands.length === 0 ? (

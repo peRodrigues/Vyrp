@@ -158,6 +158,9 @@ export const ptBR = {
   "advanced.voice.undo": "Desfaz o último texto colado",
   "advanced.voice.off": "Desligar todos",
   "advanced.voice.empty": "Comandos de voz desligados.",
+  "advanced.text.title": "Texto",
+  "advanced.text.keepEllipsis": "Manter reticências (…)",
+  "advanced.text.keepEllipsisHint": "Desligado, as reticências que aparecem quando você pausa para pensar viram texto corrido.",
 
   "diag.title": "Diagnóstico",
   "diag.lead": "Para entender lentidão ou erros: números e códigos, nunca o que você disse.",

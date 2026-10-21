@@ -168,6 +168,7 @@ pub async fn run_pipeline(deps: &Deps<'_>, input: Input, emit: &dyn Fn(Dictation
         &raw,
         &PostOptions {
             preceding,
+            keep_ellipsis: settings.keep_ellipsis,
             ..PostOptions::default()
         },
     );

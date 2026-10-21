@@ -112,6 +112,11 @@ fn compare(engine: Arc<WhisperEngine>, clip: &AudioClip, opts: &SttOptions, sile
     };
     let after_ms = t.elapsed().as_millis();
     println!("DEPOIS soltar→texto: {after_ms} ms\n  {text}");
+    // O que o ditado cola depois do pós-processo (reticências de pausa: BUGS-USO).
+    println!(
+        "PÓS-PROCESSO\n  {}",
+        vyrp_lib::post::strip_pause_ellipses(&text)
+    );
     println!(
         "RESUMO áudio={} ms antes={before_ms} ms depois={after_ms} ms",
         clip.duration_ms()
