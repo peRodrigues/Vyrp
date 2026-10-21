@@ -9,6 +9,7 @@ pub mod dictionary_commands;
 pub mod history;
 pub mod migrations;
 pub mod notifications;
+pub mod transformations;
 
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard};

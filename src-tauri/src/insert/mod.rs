@@ -4,6 +4,8 @@
 mod clipboard;
 #[cfg(windows)]
 mod win;
+#[cfg(windows)]
+pub(crate) use win::selection;
 
 use crate::core::types::{InsertMethod, InsertOutcome, InsertRequest};
 use std::sync::Arc;

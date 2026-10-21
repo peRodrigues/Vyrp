@@ -68,6 +68,9 @@ pub(crate) struct FocusSnapshot {
     pub password: bool,
     pub text_range: bool,
     pub focus_id: Vec<i32>,
+    /// V25 only: complete selection, never the normal truncated context.
+    pub full_selection: Option<String>,
+    pub selection_overflow: bool,
 }
 
 pub(crate) fn snapshot() -> FocusSnapshot {

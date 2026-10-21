@@ -82,7 +82,10 @@ impl Default for GestureConfig {
                 keys::VK_SPACE,
             ])),
             cancel: VK_ESCAPE,
-            actions: Vec::new(),
+            actions: vec![(
+                Chord(vec![keys::VK_CONTROL, keys::VK_MENU, 0x54]),
+                ActionId::Transform,
+            )],
             min_hold_ms: 150,
             double_tap_ms: 350,
             debounce_ms: 500,
@@ -303,7 +306,8 @@ impl GestureFsm {
                 self.end(now);
                 return vec![Output::Gesture(GestureEvent::Cancel)];
             }
-            return Vec::new();
+            // Action sessions (Transform) do not occupy the PTT state machine.
+            return vec![Output::Gesture(GestureEvent::Cancel)];
         }
         match self.mode {
             Mode::Idle => self.press_idle(ev, ks),
@@ -544,14 +548,38 @@ mod tests {
     }
 
     #[test]
-    fn escape_cancels_active_session_only() {
+    fn escape_also_reaches_action_sessions() {
         let mut b = Board::new();
-        assert!(b.key(0, VK_ESCAPE, true).is_empty());
+        assert_eq!(b.key(0, VK_ESCAPE, true), vec![Cancel]);
         b.key(10, VK_ESCAPE, false);
         b.key(100, VK_LCONTROL, true);
         assert_eq!(b.key(105, VK_LWIN, true), vec![PttStart]);
         assert_eq!(b.key(600, VK_ESCAPE, true), vec![Cancel]);
         assert!(b.key(700, VK_LWIN, false).is_empty());
+    }
+
+    #[test]
+    fn default_transform_chord_and_saved_slot_dispatch() {
+        let mut b = Board::new();
+        b.key(0, VK_LCONTROL, true);
+        b.key(1, VK_LMENU, true);
+        assert_eq!(
+            b.key(2, 0x54, true),
+            vec![GestureEvent::Action(ActionId::Transform)]
+        );
+        let cfg = GestureConfig {
+            actions: vec![(
+                Chord(vec![VK_CONTROL, VK_MENU, 0x39]),
+                ActionId::TransformPrompt(9),
+            )],
+            ..Default::default()
+        };
+        assert!(cfg.validate().is_empty());
+        let encoded = serde_json::to_string(&cfg).unwrap();
+        assert_eq!(
+            serde_json::from_str::<GestureConfig>(&encoded).unwrap(),
+            cfg
+        );
     }
 
     #[test]

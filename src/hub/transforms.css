@@ -1,0 +1,9 @@
+.transform-prompt { padding: 10px 0; border-bottom: 1px solid #525868; }
+.transform-prompt summary { cursor: pointer; min-height: 28px; }
+.transform-prompt textarea { width: 100%; resize: vertical; font: inherit; }
+.transform-entry { border-top: 1px solid #525868; padding: 16px 0; }
+.transform-diff { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.transform-diff pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 300px; overflow: auto; font: inherit; }
+.transform-diff del { background: #702c3c; color: #fff; }
+.transform-diff ins { background: #24583e; color: #fff; }
+@media (max-width: 650px) { .transform-diff { grid-template-columns: 1fr; } }

@@ -31,6 +31,7 @@ struct Request {
     title: Option<String>,
     deadline: Instant,
     reply: mpsc::SyncSender<FocusSnapshot>,
+    full_selection: bool,
 }
 struct Worker {
     tx: mpsc::SyncSender<Request>,
@@ -124,6 +125,15 @@ fn with_fallback(snapshot: FocusSnapshot, hwnd: isize, title: Option<&str>) -> F
 }
 
 fn capture_uia(hwnd: isize, title: Option<String>) -> FocusSnapshot {
+    capture_request(hwnd, title, false)
+}
+
+pub(crate) fn selection_target(hwnd: isize, title: Option<String>) -> FocusSnapshot {
+    // No Win32-only fallback: unknown password/focused element must fail closed.
+    capture_request(hwnd, title, true)
+}
+
+fn capture_request(hwnd: isize, title: Option<String>, full_selection: bool) -> FocusSnapshot {
     let deadline = Instant::now() + BUDGET;
     let worker = worker();
     if worker
@@ -141,6 +151,7 @@ fn capture_uia(hwnd: isize, title: Option<String>) -> FocusSnapshot {
             title,
             deadline,
             reply,
+            full_selection,
         })
         .is_err()
     {
@@ -224,6 +235,28 @@ fn read(uia: &IUIAutomation, req: &Request) -> Option<FocusSnapshot> {
                 focus.GetCurrentPatternAs::<IUIAutomationTextPattern>(UIA_TextPatternId)
             {
                 if let Ok(selection) = pattern.GetSelection().and_then(|a| a.GetElement(0)) {
+                    if req.full_selection {
+                        let single = pattern
+                            .GetSelection()
+                            .and_then(|a| a.Length())
+                            .is_ok_and(|len| len == 1);
+                        if !single {
+                            result.selection_overflow = true;
+                        }
+                        if single
+                            && let Ok(text) =
+                                selection.GetText(crate::llm::transform::MAX_SELECTION as i32 + 1)
+                        {
+                            let text = text.to_string();
+                            // UIA/BSTR lengths may count UTF-16 code units. A truncated
+                            // surrogate-rich selection must never look complete.
+                            result.selection_overflow =
+                                text.encode_utf16().count() > crate::llm::transform::MAX_SELECTION;
+                            if !result.selection_overflow {
+                                result.full_selection = Some(text);
+                            }
+                        }
+                    }
                     let readonly = selection
                         .GetAttributeValue(UIA_IsReadOnlyAttributeId)
                         .ok()
@@ -266,6 +299,17 @@ fn read(uia: &IUIAutomation, req: &Request) -> Option<FocusSnapshot> {
                     result.context.selection = selection;
                     result.context.after = after;
                     result.text_range = true;
+                }
+            }
+            if req.full_selection && result.full_selection.is_none() && !result.selection_overflow {
+                if let Some((_, selected, _)) =
+                    native_value_range(&focus, crate::llm::transform::MAX_SELECTION + 1)
+                {
+                    result.selection_overflow =
+                        selected.chars().count() > crate::llm::transform::MAX_SELECTION;
+                    if !result.selection_overflow {
+                        result.full_selection = Some(selected);
+                    }
                 }
             }
             if Instant::now() < req.deadline
@@ -425,7 +469,14 @@ fn native_value_range(
         let end = end as usize;
         Some((
             truncate(&String::from_utf16_lossy(&wide[..start]), max, true),
-            truncate(&String::from_utf16_lossy(&wide[start..end]), max, false),
+            if max == crate::llm::transform::MAX_SELECTION + 1 {
+                String::from_utf16_lossy(&wide[start..end])
+                    .chars()
+                    .take(max)
+                    .collect()
+            } else {
+                truncate(&String::from_utf16_lossy(&wide[start..end]), max, false)
+            },
             truncate(&String::from_utf16_lossy(&wide[end..]), max, false),
         ))
     }

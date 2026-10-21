@@ -18,6 +18,7 @@ pub mod settings;
 pub mod sound;
 pub mod storage;
 pub mod stt;
+pub mod transform;
 pub mod tray_i18n;
 pub mod updates;
 pub mod vad;
@@ -519,6 +520,13 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             app_info,
+            transform::transform_status,
+            transform::transform_cancel,
+            transform::transform_prompts,
+            transform::transform_save_prompt,
+            transform::transform_history,
+            transform::transform_delete,
+            transform::transform_undo,
             context::context_rules,
             context::set_context_rules,
             insert::insert_copy_last,
@@ -570,6 +578,7 @@ pub fn run() {
             }
             post::init(handle);
             learn::init(handle);
+            transform::init(handle);
             build_tray(handle)?;
             place_overlay(handle)?;
             overlay::init(handle);

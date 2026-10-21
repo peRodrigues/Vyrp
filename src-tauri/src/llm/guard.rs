@@ -67,7 +67,7 @@ fn preamble() -> &'static Regex {
     })
 }
 
-fn assistant_opening() -> &'static Regex {
+pub(super) fn assistant_opening() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
         Regex::new(

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import Advanced from "./Advanced";
+import Transforms from "./Transforms";
 import Dictionary from "./Dictionary";
 import Diagnostics from "./Diagnostics";
 import General from "./General";
@@ -21,7 +22,7 @@ interface AppInfo {
   log_dir: string;
 }
 
-type Tab = "home" | "general" | "providers" | "history" | "dictionary" | "diagnostics" | "advanced";
+type Tab = "home" | "general" | "providers" | "history" | "dictionary" | "diagnostics" | "advanced" | "transforms";
 
 const TABS: { id: Tab; label: () => string }[] = [
   { id: "home", label: () => t("tab.home") },
@@ -29,6 +30,7 @@ const TABS: { id: Tab; label: () => string }[] = [
   { id: "providers", label: () => t("tab.providers") },
   { id: "history", label: () => t("tab.history") },
   { id: "dictionary", label: () => t("tab.dictionary") },
+  { id: "transforms", label: () => t("transform.title") },
   { id: "diagnostics", label: () => t("tab.diagnostics") },
   { id: "advanced", label: () => t("tab.advanced") },
 ];
@@ -117,6 +119,7 @@ export default function Hub() {
       {tab === "providers" && <Providers {...settingsState} />}
       {tab === "history" && <History retention={settingsState.settings?.history_retention ?? null} />}
       {tab === "dictionary" && <Dictionary />}
+      {tab === "transforms" && <Transforms {...settingsState} />}
       {tab === "diagnostics" && <Diagnostics />}
       {tab === "advanced" && <Advanced {...settingsState} />}
     </main>

@@ -33,6 +33,8 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 };
 
 const BUDGET: Duration = Duration::from_millis(1500);
+#[path = "selection.rs"]
+pub(crate) mod selection;
 const MODIFIERS: [u16; 8] = [
     VK_LCONTROL,
     VK_RCONTROL,
@@ -44,6 +46,16 @@ const MODIFIERS: [u16; 8] = [
     VK_RWIN,
 ];
 pub enum Operation {
+    UndoTransform(String),
+    Selection(
+        crate::privacy::Privacy,
+        mpsc::SyncSender<Result<selection::Selection, String>>,
+    ),
+    Replace(
+        Box<selection::Selection>,
+        InsertRequest,
+        crate::privacy::Privacy,
+    ),
     Insert(InsertRequest),
     PasteLast,
     CopyLast,
@@ -63,6 +75,8 @@ struct Worker {
 }
 #[derive(Default)]
 struct State {
+    transform_undo: Option<String>,
+    selection_restore: Option<(u32, isize, clipboard::Snapshot)>,
     last: Option<InsertRequest>,
     undo: Option<FocusSnapshot>,
     pending_restore: Option<(u32, clipboard::Snapshot)>,
@@ -104,6 +118,7 @@ fn worker() -> &'static Worker {
                     let mut state = State::default();
                     loop {
                         retry_restore(owner, &mut state);
+                        selection::retry_restore(owner, &mut state);
                         let mut msg = MSG::default();
                         while PeekMessageW(&mut msg, std::ptr::null_mut(), 0, 0, PM_REMOVE) != 0 {
                             TranslateMessage(&msg);
@@ -163,6 +178,12 @@ pub fn submit(op: Operation, diag: Option<DiagTarget>) -> InsertOutcome {
 }
 
 fn run(owner: HWND, state: &mut State, job: &Job) -> InsertOutcome {
+    if state.selection_restore.is_some() {
+        return fail(
+            InsertMethod::Auto,
+            "restauração da cópia de seleção pendente",
+        );
+    }
     if state.pending_restore.is_some() {
         return fail(
             InsertMethod::Auto,
@@ -173,6 +194,53 @@ fn run(owner: HWND, state: &mut State, job: &Job) -> InsertOutcome {
         return fail(InsertMethod::Auto, "operação expirada");
     }
     match &job.op {
+        Operation::UndoTransform(id) => {
+            if state.transform_undo.as_ref() != Some(id) {
+                return fail(
+                    InsertMethod::Paste,
+                    "transformação não é a última inserção verificada",
+                );
+            }
+            state.transform_undo = None;
+            let Some(last) = state.undo.as_ref() else {
+                return fail(InsertMethod::Paste, "sem inserção verificada");
+            };
+            let undo_job = Job {
+                op: Operation::Undo,
+                diag: Some(DiagTarget {
+                    hwnd: last.hwnd,
+                    title_contains: last.context.title.clone(),
+                }),
+                deadline: job.deadline,
+                reply: job.reply.clone(),
+            };
+            undo(state, &undo_job)
+        }
+        Operation::Selection(privacy, reply) => {
+            let result = selection::capture(owner, state, job, privacy);
+            let ok = result.is_ok();
+            let _ = reply.try_send(result);
+            if ok {
+                InsertOutcome {
+                    ok: true,
+                    method: InsertMethod::Auto,
+                    verified: None,
+                    reason: None,
+                }
+            } else {
+                fail(InsertMethod::Auto, "seleção indisponível")
+            }
+        }
+        Operation::Replace(selection, req, privacy) => {
+            if let Err(e) = selection::validate_current(owner, state, job, selection, privacy) {
+                return fail(req.method, e);
+            }
+            let outcome = insert(owner, state, req, job);
+            if outcome.ok && outcome.verified == Some(true) {
+                state.transform_undo = Some(selection.id.clone());
+            }
+            outcome
+        }
         Operation::Undo => undo(state, job),
         Operation::CopyLast => {
             let Some(req) = state.last.clone() else {
@@ -375,6 +443,7 @@ fn window_class(hwnd: isize) -> String {
 }
 
 fn insert(owner: HWND, state: &mut State, req: &InsertRequest, job: &Job) -> InsertOutcome {
+    state.transform_undo = None;
     state.undo = None;
     crate::learn::forget();
     if req.text.is_empty() {
@@ -404,6 +473,11 @@ fn insert(owner: HWND, state: &mut State, req: &InsertRequest, job: &Job) -> Ins
         );
     }
     let before = target.snapshot();
+    if let Operation::Replace(selection, _, privacy) = &job.op {
+        if let Err(e) = selection::check_snapshot(selection, &before, privacy) {
+            return fail(req.method, e);
+        }
+    }
     if before.password {
         return fail(req.method, "campo de senha: inserção bloqueada");
     }

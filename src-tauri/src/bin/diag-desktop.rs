@@ -222,7 +222,17 @@ mod windows_diag {
         let args: Vec<String> = std::env::args().collect();
         if args.len() != 4
             || args[3] != "--ack-test-slot"
-            || !["context", "paste", "type", "guard", "copy", "learn"].contains(&args[2].as_str())
+            || ![
+                "context",
+                "paste",
+                "type",
+                "guard",
+                "copy",
+                "learn",
+                "transform",
+                "transform-undo",
+            ]
+            .contains(&args[2].as_str())
             || (args[2] == "learn" && args[1] != "textbox")
         {
             return Err("uso: diag-desktop notepad|textbox|chrome|edge|edge-password|terminal context|paste|type|guard|copy|learn --ack-test-slot (somente após liberação do slot)".into());
@@ -262,6 +272,21 @@ mod windows_diag {
         std::thread::sleep(Duration::from_millis(200));
         guard(hwnd, &marker)?;
         let (before, elapsed_ms) = capture(hwnd, &marker)?;
+        if args[2].starts_with("transform") {
+            guard(hwnd, &marker)?;
+            let report = vyrp_lib::transform::diagnostic::run(
+                vyrp_lib::insert::DiagTarget {
+                    hwnd,
+                    title_contains: marker.clone(),
+                },
+                args[2] == "transform-undo",
+            )?;
+            println!(
+                "TRANSFORM {}",
+                serde_json::to_string_pretty(&report).map_err(|e| e.to_string())?
+            );
+            return Ok(());
+        }
         let outcome = if args[2] == "context" {
             None
         } else {

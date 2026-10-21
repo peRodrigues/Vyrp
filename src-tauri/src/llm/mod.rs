@@ -13,6 +13,7 @@
 pub mod error;
 pub mod guard;
 pub mod prompt;
+pub mod transform;
 pub mod wire;
 
 use std::sync::Arc;

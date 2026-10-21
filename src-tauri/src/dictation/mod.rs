@@ -283,6 +283,7 @@ struct Session {
 }
 
 pub struct Orchestrator {
+    processing: Arc<std::sync::atomic::AtomicUsize>,
     app: AppHandle,
     context: Arc<dyn ContextSource>,
     inserter: Arc<dyn Inserter>,
@@ -297,6 +298,7 @@ impl Orchestrator {
         inserter: Arc<dyn Inserter>,
     ) -> Arc<Self> {
         Arc::new(Self {
+            processing: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             app,
             context,
             inserter,
@@ -321,6 +323,9 @@ impl Orchestrator {
 
     /// Entrada dos gestos (thread de gestos): só decide e despacha; nada pesado aqui.
     pub fn on_gesture(self: &Arc<Self>, gesture: GestureEvent) {
+        if crate::transform::handle_gesture(&self.app, gesture) {
+            return;
+        }
         if self.live.lock().unwrap().as_ref().is_some_and(|s| s.test) {
             tracing::debug!(?gesture, "gesto ignorado: ditado de teste do hub em curso");
             return;
@@ -409,6 +414,9 @@ impl Orchestrator {
 
     /// Ditado de teste do hub/onboarding: começa a gravar (como um PTT), sem colar no fim.
     pub fn test_start(self: &Arc<Self>) -> Result<(), UiError> {
+        if crate::transform::active(&self.app) {
+            return Err(crate::llm::transform::error("transform.busy"));
+        }
         if self.live.lock().unwrap().is_some() {
             return Err(UiError::new(
                 "test.already_running",
@@ -594,10 +602,14 @@ impl Orchestrator {
         generation: u64,
         incremental: Option<crate::stt::incremental::Incremental>,
     ) {
+        self.processing
+            .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+        let processing = Arc::clone(&self.processing);
         let me = Arc::clone(self);
         std::thread::Builder::new()
             .name("vyrp-dictation".into())
             .spawn(move || {
+                let _activity = ProcessingActivity(processing);
                 let settings = me.app.state::<SettingsStore>().get();
                 if let Some(blocked) = crate::privacy::check(&settings.privacy, &context) {
                     // App/site bloqueado: o clipe é descartado sem transcrever (nada sai do micro).
@@ -697,10 +709,25 @@ impl Orchestrator {
             if let Some(orch) = app.try_state::<Arc<Orchestrator>>()
                 && *orch.generation.lock().unwrap() == generation
                 && orch.live.lock().unwrap().is_none()
+                && !crate::transform::active(&app)
             {
                 let _ = app.emit(EVENT_STATE, DictationState::Idle);
             }
         });
+    }
+}
+
+impl Orchestrator {
+    pub fn is_busy(&self) -> bool {
+        self.live.lock().unwrap().is_some()
+            || self.processing.load(std::sync::atomic::Ordering::Acquire) > 0
+    }
+}
+
+struct ProcessingActivity(Arc<std::sync::atomic::AtomicUsize>);
+impl Drop for ProcessingActivity {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
     }
 }
 

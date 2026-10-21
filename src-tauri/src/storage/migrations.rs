@@ -62,6 +62,26 @@ pub const MIGRATIONS: &[&str] = &[
         times_shown     INTEGER NOT NULL DEFAULT 0
     );
     "#,
+    // v2: V25. Somente seleção/instrução/resultado; nunca contexto de tela.
+    r#"
+    CREATE TABLE transform_prompts (
+        slot INTEGER PRIMARY KEY CHECK(slot BETWEEN 1 AND 9),
+        title TEXT NOT NULL DEFAULT '',
+        instruction TEXT NOT NULL DEFAULT ''
+    );
+    INSERT INTO transform_prompts(slot) VALUES (1),(2),(3),(4),(5),(6),(7),(8),(9);
+    CREATE TABLE transformations (
+        id TEXT PRIMARY KEY,
+        created_at INTEGER NOT NULL,
+        original_text TEXT NOT NULL,
+        instruction TEXT NOT NULL,
+        transformed_text TEXT NOT NULL,
+        prompt_slot INTEGER,
+        status TEXT NOT NULL,
+        provider TEXT NOT NULL
+    );
+    CREATE INDEX transformations_created_at ON transformations(created_at DESC);
+    "#,
 ];
 
 /// Leva `conn` até a última versão de [`MIGRATIONS`].

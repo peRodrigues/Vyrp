@@ -83,6 +83,11 @@ name = "diag-desktop"
 path = "src/bin/diag-desktop.rs"
 required-features = ["dev-tools"]
 
+[[bin]]
+name = "diag-transform-hub"
+path = "src/bin/diag-transform-hub.rs"
+required-features = ["dev-tools"]
+
 [lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
 
